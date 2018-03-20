@@ -11,13 +11,13 @@ end
 init_mask = load('frames1_mask1'); init_mask = init_mask.init_mask;
 
 halfw = 15; density = 6;
-[local_windows_image_cell local_windows_mask_cell] = create_local_windows(images_cell{1,1},init_mask,halfw,density);
+local_windows_center_cell = get_window_pos(init_mask,density);
+local_windows_image_cell = get_local_windows(images_cell{1,1},local_windows_center_cell, halfw);
+local_windows_mask_cell = get_local_windows(init_mask,local_windows_center_cell, halfw);
 
 [i s] = size(local_windows_image_cell);
 foreground_model_cell = cell(1,s);
 background_model_cell = cell(1,s);
-% foreground_prob_cell = cell(1,s);
-% background_prob_cell = cell(1,s);
 combined_prob_cell = cell(1,s);
 for i = 1:s
     [r c] = find(bwdist(local_windows_mask_cell{1,i})>4);
@@ -34,14 +34,7 @@ for i = 1:s
     values = reshape(double(local_windows_image_cell{1,i}),[r*c 3]);
     
     fore_prob = pdf(foreground_model_cell{1,i},values);
-%     norm_fore_prob = fore_prob - min(fore_prob(:));
-%     norm_fore_prob = norm_fore_prob ./ max(norm_fore_prob(:)); 
-%     foreground_prob_cell{1,i} = reshape( norm_fore_prob,[r c]);
-        
     back_prob = pdf(background_model_cell{1,i},values);
-%     norm_back_prob = back_prob - min(back_prob(:));
-%     norm_back_prob = norm_back_prob ./ max(norm_back_prob(:));
-%     background_prob_cell{1,i} = reshape( norm_back_prob,[r c]);
     
     comb_prob = fore_prob./(fore_prob+back_prob);
     norm_comb_prob = comb_prob - min(comb_prob); 
@@ -65,7 +58,7 @@ for i = 1:s
 end
 
 %shape model
-shape_model_confidence_cell = cell(1,s);
+shape_model_confidence_mask_cell = cell(1,s);
 fcutoff = 0.8; sigma_min = 2; sigma_max = halfw*2+1; r=2; a = (sigma_max-sigma_min)/(1-fcutoff)^r;
 for i = 1:s
     fc = color_model_confidence_cell{1,i};
@@ -77,22 +70,63 @@ for i = 1:s
     
     d1 = bwdist(local_windows_mask_cell{1,i}); d2 = bwdist(local_windows_mask_cell{1,i}==0);
     d = max(d1,d2);
-==
-    shape_model_confidence_cell{1,i} = 1 - exp(-d.^2./sigma_s.^2);
+    shape_model_confidence_mask_cell{1,i} = 1 - exp(-d.^2./sigma_s.^2); %eq 3
+    %imshow(shape_model_confidence_mask_cell{1,i});
+end
+
+%estimate whole object motion
+
+transformation_cell = cell(1,num_images-1);
+for i = 2:num_images
+    gray_im1 = rgb2gray(images_cell{1,i-1});
+    gray_im2 = rgb2gray(images_cell{1,i});
+    points1 = detectSURFFeatures(gray_im1,'MetricThreshold',100);
+    points2 = detectSURFFeatures(gray_im2,'MetricThreshold',100);
+    [features1, validpts1]  = extractFeatures(gray_im1,points1);
+    [features2, validpts2] = extractFeatures(gray_im2,points2);
+    indexPairs = matchFeatures(features1,features2);
+    matchedPoints1 = validpts1(indexPairs(:,1));
+    matchedPoints2 = validpts2(indexPairs(:,2));
+    transformation_cell{1,i-1} = estimateGeometricTransform(matchedPoints1,matchedPoints2,'affine');
 end
 
 
-function [local_windows_image_cell, local_windows_mask_cell] = create_local_windows(I, init_mask,halfwidth,density)
+new_mask = imwarp(init_mask,transformation_cell{1,1});
+imshow(new_mask);
+
+%get average flow for each window
+opticFlow = opticalFlowHS;
+estimateFlow(opticFlow,rgb2gray(images_cell{1,i}));
+for i=1:s
+    flow = estimateFlow(opticFlow,rgb2gray(images_cell{1,i}));
+    local_windows_image_cell{1,i} 
+end
+% opticFlow = opticalFlowHS;
+% for i = 1:num_images
+%     flow = estimateFlow(opticFlow,rgb2gray(images_cell{1,i}));
+% end
+
+  
+
+function local_windows_center_cell = get_window_pos(init_mask,density)
     b = bwboundaries(init_mask); b = b{1,1}; %coords of edge of mask
     [h w] = size(b);
-    local_windows_image_cell = cell(1,floor(h/density));
-    local_windows_mask_cell = cell(1,floor(h/density));
+    local_windows_center_cell = cell(1,floor(h/density));
     for i = 1:floor(h/density)
         r  = b(i,1); c= b(i,2);
+        local_windows_center_cell{1,i} = [r c];
+    end
+end
+
+
+function local_windows_image_cell = get_local_windows(I,local_windows_center_cell, halfwidth)
+    [~, num_windows] = size(local_windows_center_cell);
+    local_windows_image_cell = cell(1,num_windows);
+    for i = 1:num_windows
+        center = local_windows_center_cell{1,i};
+        r = center(1); c = center(2);
         my_patch = I(r-halfwidth:r+halfwidth, c-halfwidth:c+halfwidth,:);
         local_windows_image_cell{1,i} = my_patch; 
-        my_patch = init_mask(r-halfwidth:r+halfwidth, c-halfwidth:c+halfwidth,:);
-        local_windows_mask_cell{1,i} = my_patch;
     end
 end
 
