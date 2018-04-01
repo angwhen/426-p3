@@ -16,8 +16,8 @@ transformation_cell = cell(1,num_images-1);
 for i = 2:num_images
     gray_im1 = rgb2gray(images_cell{1,i-1});
     gray_im2 = rgb2gray(images_cell{1,i});
-    points1 = detectSURFFeatures(gray_im1,'MetricThreshold',100);
-    points2 = detectSURFFeatures(gray_im2,'MetricThreshold',100);
+    points1 = detectSURFFeatures(gray_im1,'MetricThreshold',200);
+    points2 = detectSURFFeatures(gray_im2,'MetricThreshold',200);
     [features1, validpts1]  = extractFeatures(gray_im1,points1);
     [features2, validpts2] = extractFeatures(gray_im2,points2);
     indexPairs = matchFeatures(features1,features2);
@@ -26,7 +26,7 @@ for i = 2:num_images
     transformation_cell{1,i-1} = estimateGeometricTransform(matchedPoints2,matchedPoints1,'affine');
 end
 
-halfw = 15; density = 10;
+halfw = 30; density = 15;
 
 local_windows_center_cell_prev = get_window_pos_orig(init_mask,density);
 local_windows_image_cell_prev = get_local_windows(images_cell{1,1},local_windows_center_cell_prev, halfw);
@@ -48,21 +48,31 @@ local_color_to_save = get_final_mask(rgb2gray(images_cell{1,1}),local_windows_ce
 imwrite(local_color_to_save,sprintf('../Output/Local_Color_%s_1.png',folder_name));
 % local_shape_to_save = get_final_mask(rgb2gray(images_cell{1,1}),local_windows_center_cell_prev,local_windows_mask_cell_prev,foreground_prev,halfw,s);
 % imwrite(local_shape_to_save,sprintf('../Output/Local_Shape_%s_1.png',folder_name));
-% local_shape_conf_to_save = get_final_mask(rgb2gray(images_cell{1,1}),local_windows_center_cell_prev,shape_model_confidence_mask_cell_prev,foreground_prev,halfw,s);
-% imwrite(local_shape_conf_to_save,sprintf('../Output/Local_Shape_Conf_%s_1.png',folder_name));
+local_shape_conf_to_save = get_final_mask(rgb2gray(images_cell{1,1}),local_windows_center_cell_prev,shape_model_confidence_mask_cell_prev,foreground_prev,halfw,s);
+imwrite(local_shape_conf_to_save,sprintf('../Output/Local_Shape_Conf_%s_1.png',folder_name));
+imwrite(uint8(double(images_cell{1,1}).*foreground_prev),sprintf('../Output/Image_Cutout_%s_1.png',folder_name));
 
-
+subplot(2,2,1), imshow(local_windows_image_cell_prev{1,1});
+subplot(2,2,2), imshow(combined_color_prob_cell_curr{1,1});
+subplot(2,2,3), imshow(shape_model_confidence_mask_cell_prev{1,1});
+subplot(2,2,4), imshow(local_windows_mask_cell_prev{1,1});
+saveas(gcf,sprintf('../OutputWindow/Window1_%s_1.png',folder_name));   
+close all
+figure
+    
 prev_mask = foreground_prev;
 for frame =2:num_images
     fprintf("curr frame is %d\n",frame);
     %object motion, moving windows
     R = imref2d(size(prev_mask));
     new_mask = imwarp(prev_mask,transformation_cell{1,frame-1},'OutputView',R);
+    %new_shape_confidence = imwarp(local_shape_conf_to_save,transformation_cell{1,frame-1},'OutputView',R);
     warped_image = imwarp(images_cell{1,frame-1},transformation_cell{1,frame-1},'OutputView',R);
     local_windows_center_cell_curr = get_new_windows_centers(local_windows_mask_cell_prev,local_windows_center_cell_prev,warped_image,images_cell{1,frame},transformation_cell{1,frame-1},halfw,s);
     save_image_with_boxes(images_cell{1,frame},local_windows_center_cell_curr,halfw,s,sprintf('../Output/Windows_On_Image_%s_%d.png',folder_name,frame));
-
-    local_windows_mask_cell_curr = get_local_windows(new_mask,local_windows_center_cell_curr, halfw);
+    
+    local_windows_mask_cell_curr = get_local_windows(prev_mask,local_windows_center_cell_curr, halfw); %use warped mask or NOT???? IDKK
+    %shape_model_confidence_mask_cell_curr = get_local_windows(new_shape_confidence,local_windows_center_cell_curr,halfw);
     
     %get cell with image in windows
     local_windows_image_cell_curr = get_local_windows(images_cell{1,frame},local_windows_center_cell_curr, halfw);
@@ -70,18 +80,21 @@ for frame =2:num_images
     %update color model
     combined_color_prob_cell_curr = get_combined_color_prob_cell2(local_windows_mask_cell_curr, local_windows_image_cell_curr, combined_color_prob_cell_prev, s);
     color_model_confidence_cell_curr = get_color_model_confidence(local_windows_mask_cell_curr, combined_color_prob_cell_curr,halfw,s);
-
+    
+    %update shape confidence based on change in color model confidence 
+    shape_model_confidence_mask_cell_curr = get_shape_model_confidence_mask_cell(local_windows_mask_cell_curr,color_model_confidence_cell_curr,halfw,s);
+    
     %combine shape and color model
-    total_confidence_cell_curr = get_total_confidence_cell(shape_model_confidence_mask_cell_prev,combined_color_prob_cell_curr,local_windows_mask_cell_prev,s);
+    total_confidence_cell_curr = get_total_confidence_cell(shape_model_confidence_mask_cell_curr,combined_color_prob_cell_curr,local_windows_mask_cell_prev,s);
 
     %determine new mask
     foreground_prob_curr = get_final_mask(rgb2gray(images_cell{1,frame}),local_windows_center_cell_curr,total_confidence_cell_curr,new_mask,halfw,s);
     %foreground_curr = get_snapped(foreground_prob_curr,foreground_prob_curr);
-    foreground_curr = foreground_prob_curr >0.5; %not showing the cutoff because WTV
-    imshow(foreground_curr);
+    foreground_curr = foreground_prob_curr >0.5;
     
     %setting to prev
     prev_mask = foreground_curr;
+    shape_model_confidence_mask_cell_prev =  shape_model_confidence_mask_cell_curr;
     local_windows_mask_cell_prev = local_windows_mask_cell_curr;
     local_windows_center_cell_prev = local_windows_center_cell_curr;
     local_windows_image_cell_prev = local_windows_image_cell_curr;
@@ -97,6 +110,16 @@ for frame =2:num_images
     imwrite(local_shape_to_save,sprintf('../Output/Local_Shape_%s_%d.png',folder_name,frame));
     local_shape_conf_to_save = get_final_mask(rgb2gray(images_cell{1,frame}),local_windows_center_cell_curr,shape_model_confidence_mask_cell_prev,new_mask,halfw,s);
     imwrite(local_shape_conf_to_save,sprintf('../Output/Local_Shape_Conf_%s_%d.png',folder_name,frame));
+    imwrite(uint8(double(images_cell{1,frame}).*foreground_curr),sprintf('../Output/Image_Cutout_%s_%d.png',folder_name,frame));
+    
+    %save for just one window
+    subplot(2,2,1), imshow(local_windows_image_cell_curr{1,1});
+    subplot(2,2,2), imshow(combined_color_prob_cell_curr{1,1});
+    subplot(2,2,3), imshow(shape_model_confidence_mask_cell_prev{1,1});
+    subplot(2,2,4), imshow(local_windows_mask_cell_prev{1,1});
+    saveas(gcf,sprintf('../OutputWindow/Window1_%s_%d.png',folder_name,frame));   
+    close all
+    figure
 end
 
 function local_windows_center_cell = get_window_pos_orig(init_mask,density)
@@ -128,12 +151,11 @@ function combined_color_prob_cell = get_combined_color_prob_cell(local_windows_m
         curr_image = local_windows_image_cell{1,i};
         inverted = local_windows_mask_cell_prev{1,i}==0; %background becomes non zero
         
-        [r c] = find(bwdist(inverted)>2);
-        foreground_pix = rgb2lab(impixel(curr_image,r,c));
+        [r c] = find(bwdist(inverted)>5);
+        foreground_pix = rgb2lab(impixel(curr_image,c,r));
         foreground_model = fitgmdist(foreground_pix,1,'CovarianceType','diagonal','RegularizationValue',0.001);
-
         
-        [r c] = find(bwdist(local_windows_mask_cell_prev{1,i})>2); %find all non zero that are more than 2 away from foreground 
+        [r c] = find(bwdist(local_windows_mask_cell_prev{1,i})>5); %find all non zero that are more than 2 away from foreground 
         background_pix = rgb2lab(impixel(curr_image,c,r));
         background_model = fitgmdist(background_pix,1,'CovarianceType','diagonal','RegularizationValue',0.001);
 
@@ -145,10 +167,8 @@ function combined_color_prob_cell = get_combined_color_prob_cell(local_windows_m
         back_prob = pdf(background_model,values);
 
         comb_prob = fore_prob./(fore_prob+back_prob);
-        %norm_comb_prob = comb_prob - min(comb_prob); 
-        %norm_comb_prob = norm_comb_prob ./ max(norm_comb_prob(:));
         combined_color_prob_cell{1,i} = reshape(comb_prob,[r c]); 
-        imshow(mat2gray(reshape(fore_prob,[r c])));
+        imshow(combined_color_prob_cell{1,i});
     end
 end
 
@@ -162,7 +182,10 @@ function color_model_confidence_cell = get_color_model_confidence(local_windows_
         numer_window = abs(local_windows_mask_cell_prev{1,i} - combined_color_prob_cell{1,i}).*wc; 
         numer = sum(numer_window(:));
         denom = sum(wc(:));
-        color_model_confidence_cell{1,i} = 1 - numer/denom;
+        color_model_confidence_cell{1,i} = 0.95; %1 - numer/denom;
+        if i == 1
+            fprintf("color model confidence for window 1 is %f\n",color_model_confidence_cell{1,1});
+        end
     end
 end
 
@@ -187,7 +210,7 @@ end
 function local_windows_center_cell2 = get_new_windows_centers(local_windows_mask_cell_prev,local_windows_center_cell,curr_image,next_image,my_tform,halfw,s)
     % move each point with the affine transformation
     %get average flow for each window
-    opticFlow = opticalFlowHS;
+    opticFlow = opticalFlowFarneback;
     estimateFlow(opticFlow,rgb2gray(curr_image));
     flow = estimateFlow(opticFlow,rgb2gray(next_image));
 
@@ -195,11 +218,12 @@ function local_windows_center_cell2 = get_new_windows_centers(local_windows_mask
     VyWindows = get_local_windows(flow.Vy,local_windows_center_cell, halfw);
     local_windows_center_cell2 = cell(1,s);
     for i = 1:s
-        % get mean within foreground
+        %get mean within foreground
         currVx = VxWindows{1,i}*local_windows_mask_cell_prev{1,i};
         Vxmean = sum(currVx(:))/sum(currVx(:)~=0);
         currVy = VyWindows{1,i}*local_windows_mask_cell_prev{1,i};
         Vymean = sum(currVy(:))/sum(currVy(:)~=0);
+  
         if isnan(Vxmean) || isnan(Vymean)
             Vxmean = 0; Vymean = 0;
         end
@@ -208,14 +232,6 @@ function local_windows_center_cell2 = get_new_windows_centers(local_windows_mask
         [newr,newc] = transformPointsForward(my_tform,cr,cc);
      
         local_windows_center_cell2{1,i} = uint32([newr newc]+[Vymean Vxmean]);
-        if local_windows_center_cell2{1,i}(1) == 0 || local_windows_center_cell2{1,i}(2) == 0
-            disp("zeros here");
-            disp(newr)
-            disp(newc)
-            disp(Vxmean)
-            disp(Vymean)
-            dbstop
-        end
     end
 end
 
@@ -225,7 +241,7 @@ function combined_color_prob_cell2 = get_combined_color_prob_cell2(local_windows
     combined_color_prob_cell2 = cell(1,s);
     for i = 1:s
         inverted = local_windows_mask_cell_prev2{1,i}==0;
-        [r c] = find(bwdist(inverted)>2);
+        [r c] = find(bwdist(inverted)>5);
         foreground_pix = rgb2lab(impixel(local_windows_image_cell2{1,i},c,r));
         [a b] = size(foreground_pix);
         if a > b
@@ -235,7 +251,7 @@ function combined_color_prob_cell2 = get_combined_color_prob_cell2(local_windows
             continue
         end
 
-        [r c] = find(bwdist(local_windows_mask_cell_prev2{1,i})>2);
+        [r c] = find(bwdist(local_windows_mask_cell_prev2{1,i})>5);
         background_pix = rgb2lab(impixel(local_windows_image_cell2{1,i},c,r));
         [a b] = size(background_pix);
         if a > b
@@ -310,7 +326,8 @@ function save_image_with_boxes(I,local_windows_center_cell_curr,halfw,s,filename
     for i = 1:s
         center = local_windows_center_cell_curr{1,i};
         cr = center(1); cc = center(2);
-        rectangle('Position',[cc-halfw,cr-halfw,halfw*2+1,halfw*2+1]);
+        %rectangle('Position',[cc-halfw,cr-halfw,halfw*2+1,halfw*2+1]);
+        plot(cc, cr, 'r*', 'LineWidth', 2, 'MarkerSize', 5);
     end
     hold off 
     saveas(gcf,filename);
