@@ -1,4 +1,4 @@
-folder_name = 'Frames2';
+folder_name = 'Frames4';
 num_images = size(dir(['../' folder_name '/*.jpg']),1); 
 images_cell = cell(1,num_images);
 for i=1:num_images
@@ -6,9 +6,9 @@ for i=1:num_images
     images_cell{1,i}  = imread(filename);
 end
 
-imshow(images_cell{1,1});
-init_mask = roipoly();
-%init_mask = load('frames1_mask1'); init_mask = init_mask.init_mask;
+%imshow(images_cell{1,1});
+%init_mask = roipoly();
+init_mask = load('frames4_mask1'); init_mask = init_mask.init_mask;
 
 %% Get transformations between frames 
 %estimate whole object motion
@@ -26,7 +26,7 @@ for i = 2:num_images
     transformation_cell{1,i-1} = estimateGeometricTransform(matchedPoints2,matchedPoints1,'affine');
 end
 
-halfw = 35; s = 20; % s is how many windows total
+halfw = 25; s = 40; % s is how many windows total
 
 local_windows_center_cell_prev = get_window_pos_orig(init_mask,s);
 local_windows_image_cell_prev = get_local_windows(images_cell{1,1},local_windows_center_cell_prev, halfw);
@@ -53,10 +53,12 @@ imwrite(local_shape_conf_to_save,sprintf('../MyOutput/%s/Local_Shape_Conf_1.png'
 
 B = bwboundaries(foreground_prev);
 imshow(images_cell{1,frame});
+hold on
 for k = 1:length(B)
     boundary = B{k};
     plot(boundary(:,2), boundary(:,1), 'y', 'LineWidth', 2)
 end
+hold off
 saveas(gcf,sprintf('../MyOutput/%s/Highlighted_%d.png',folder_name,1));
 %imwrite(uint8(double(images_cell{1,1}).*foreground_prev),sprintf('../MyOutput/%s/Image_Cutout_1.png',folder_name));
 
@@ -145,10 +147,12 @@ for frame =2:num_images
     
     B = bwboundaries(foreground_curr);
     imshow(images_cell{1,frame});
+    hold on
     for k = 1:length(B)
         boundary = B{k};
         plot(boundary(:,2), boundary(:,1), 'y', 'LineWidth', 2)
     end
+    hold off
     saveas(gcf,sprintf('../MyOutput/%s/Highlighted_%d.png',folder_name,frame));
     %imwrite(uint8(double(images_cell{1,frame}).*foreground_curr),sprintf('../MyOutput/%s/Image_Cutout_%d.png',folder_name,frame));
     
