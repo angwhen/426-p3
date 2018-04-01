@@ -26,7 +26,7 @@ for i = 2:num_images
     transformation_cell{1,i-1} = estimateGeometricTransform(matchedPoints2,matchedPoints1,'affine');
 end
 
-halfw = 30; s = 50; % s is how many windows total
+halfw = 35; s = 20; % s is how many windows total
 
 local_windows_center_cell_prev = get_window_pos_orig(init_mask,s);
 local_windows_image_cell_prev = get_local_windows(images_cell{1,1},local_windows_center_cell_prev, halfw);
@@ -37,18 +37,18 @@ color_model_confidence_cell_prev = get_color_model_confidence(local_windows_mask
 shape_model_confidence_mask_cell_prev = get_shape_model_confidence_mask_cell(local_windows_mask_cell_prev,color_model_confidence_cell_prev,halfw,s);
 total_confidence_cell_prev = get_total_confidence_cell(shape_model_confidence_mask_cell_prev,combined_color_prob_cell_prev,local_windows_mask_cell_prev,s);
 
-foreground_prob_prev = get_final_mask(rgb2gray(images_cell{1,1}),local_windows_center_cell_prev,total_confidence_cell_prev,init_mask,halfw,s);
+foreground_prob_prev = get_final_mask(rgb2gray(images_cell{1,1}),local_windows_center_cell_prev,total_confidence_cell_prev,halfw,s);
 foreground_prev = foreground_prob_prev > 0.5;
 imshow(foreground_prev);
 
 save_image_with_boxes(images_cell{1,1},local_windows_center_cell_prev,halfw,s,sprintf('../Output/Windows_On_Image_%s_1.png',folder_name));
 imwrite(foreground_prev,sprintf('../Output/%s_1.png',folder_name));
 
-local_color_to_save = get_final_mask(rgb2gray(images_cell{1,1}),local_windows_center_cell_prev,combined_color_prob_cell_prev,foreground_prev,halfw,s);
+local_color_to_save = get_final_mask(rgb2gray(images_cell{1,1}),local_windows_center_cell_prev,combined_color_prob_cell_prev,halfw,s);
 imwrite(local_color_to_save,sprintf('../Output/Local_Color_%s_1.png',folder_name));
-local_shape_to_save = get_final_mask(rgb2gray(images_cell{1,1}),local_windows_center_cell_prev,local_windows_mask_cell_prev,foreground_prev,halfw,s);
+local_shape_to_save = get_final_mask(rgb2gray(images_cell{1,1}),local_windows_center_cell_prev,local_windows_mask_cell_prev,halfw,s);
 imwrite(local_shape_to_save,sprintf('../Output/Local_Shape_%s_1.png',folder_name));
-local_shape_conf_to_save = get_final_mask(rgb2gray(images_cell{1,1}),local_windows_center_cell_prev,shape_model_confidence_mask_cell_prev,foreground_prev,halfw,s);
+local_shape_conf_to_save = get_final_mask(rgb2gray(images_cell{1,1}),local_windows_center_cell_prev,shape_model_confidence_mask_cell_prev,halfw,s);
 imwrite(local_shape_conf_to_save,sprintf('../Output/Local_Shape_Conf_%s_1.png',folder_name));
 imwrite(uint8(double(images_cell{1,1}).*foreground_prev),sprintf('../Output/Image_Cutout_%s_1.png',folder_name));
 
@@ -68,7 +68,7 @@ for frame =2:num_images
     fprintf("curr frame is %d\n",frame);
     %object motion, moving windows
     R = imref2d(size(prev_mask));
-    new_mask = imwarp(prev_mask,transformation_cell{1,frame-1},'OutputView',R);
+    %new_mask = imwarp(prev_mask,transformation_cell{1,frame-1},'OutputView',R);
     warped_image = imwarp(images_cell{1,frame-1},transformation_cell{1,frame-1},'OutputView',R);
     
     %idk adding stuff ... changing centers based on new mask first?
@@ -76,11 +76,35 @@ for frame =2:num_images
     %local_windows_center_cell_curr =  local_windows_center_cell_prev; %
     %FIX WRPING, WRONG EVEN FOR EXACT SAME IMAGE ALL THE TIME
     local_windows_center_cell_curr = get_new_windows_centers(local_windows_mask_cell_prev,local_windows_center_cell_prev,warped_image,images_cell{1,frame},transformation_cell{1,frame-1},halfw,s);
+     for j = 1:s
+         if local_windows_center_cell_curr{1,j} ~= local_windows_center_cell_prev{1,j}
+             disp("DIFFERENT")
+         end
+     end
+    
     save_image_with_boxes(images_cell{1,frame},local_windows_center_cell_curr,halfw,s,sprintf('../Output/Windows_On_Image_%s_%d.png',folder_name,frame));
     
     disp("starting windows mask cell curr")
     local_windows_mask_cell_curr = get_local_windows(prev_mask,local_windows_center_cell_curr, halfw); %use warped mask or NOT???? IDKK
     disp("done with windows mask cell curr")
+    for j = 1:s
+        myimage = images_cell{1,frame};
+        center = local_windows_center_cell_curr{1,j}; cr = center(1); cc = center(2);
+        curr = local_windows_mask_cell_curr{1,j};
+        for a = 1:(halfw*2+1)
+            for b =  1:(halfw*2+1)
+                val = uint8(curr(a,b)*256);
+                myimage(cr-halfw+a,cc-halfw+b,:) = [val val val];
+            end
+        end
+        imshow(myimage);
+        hold on
+        plot(cc, cr, 'r*', 'LineWidth', 2, 'MarkerSize', 10);
+        hold off 
+    end
+    
+    imshow(get_final_mask_SHAPE(rgb2gray(images_cell{1,frame}),local_windows_center_cell_curr,local_windows_mask_cell_curr,halfw,s));
+    
 
     %get cell with image in windows
     local_windows_image_cell_curr = get_local_windows(images_cell{1,frame},local_windows_center_cell_curr, halfw);
@@ -96,7 +120,7 @@ for frame =2:num_images
     total_confidence_cell_curr = get_total_confidence_cell(shape_model_confidence_mask_cell_curr,combined_color_prob_cell_curr,local_windows_mask_cell_prev,s);
 
     %determine new mask
-    foreground_prob_curr = get_final_mask(rgb2gray(images_cell{1,frame}),local_windows_center_cell_curr,total_confidence_cell_curr,new_mask,halfw,s);
+    foreground_prob_curr = get_final_mask(rgb2gray(images_cell{1,frame}),local_windows_center_cell_curr,total_confidence_cell_curr,halfw,s);
     %foreground_curr = get_snapped(foreground_prob_curr,foreground_prob_curr);
     foreground_curr = foreground_prob_curr >0.5;
     
@@ -112,11 +136,11 @@ for frame =2:num_images
     %writing to files
     imwrite(foreground_curr,sprintf('../Output/%s_%d.png',folder_name,frame));
     
-    local_color_to_save = get_final_mask(rgb2gray(images_cell{1,frame}),local_windows_center_cell_curr,combined_color_prob_cell_curr,new_mask,halfw,s);
+    local_color_to_save = get_final_mask(rgb2gray(images_cell{1,frame}),local_windows_center_cell_curr,combined_color_prob_cell_curr,halfw,s);
     imwrite(local_color_to_save,sprintf('../Output/Local_Color_%s_%d.png',folder_name,frame));
-    local_shape_to_save = get_final_mask(rgb2gray(images_cell{1,frame}),local_windows_center_cell_prev,local_windows_mask_cell_prev,new_mask,halfw,s);
+    local_shape_to_save = get_final_mask(rgb2gray(images_cell{1,frame}),local_windows_center_cell_prev,local_windows_mask_cell_prev,halfw,s);
     imwrite(local_shape_to_save,sprintf('../Output/Local_Shape_%s_%d.png',folder_name,frame));
-    local_shape_conf_to_save = get_final_mask(rgb2gray(images_cell{1,frame}),local_windows_center_cell_curr,shape_model_confidence_mask_cell_prev,new_mask,halfw,s);
+    local_shape_conf_to_save = get_final_mask(rgb2gray(images_cell{1,frame}),local_windows_center_cell_curr,shape_model_confidence_mask_cell_prev,halfw,s);
     imwrite(local_shape_conf_to_save,sprintf('../Output/Local_Shape_Conf_%s_%d.png',folder_name,frame));
     imwrite(uint8(double(images_cell{1,frame}).*foreground_curr),sprintf('../Output/Image_Cutout_%s_%d.png',folder_name,frame));
     
@@ -134,11 +158,12 @@ function local_windows_center_cell = get_window_pos_orig(init_mask,s)
     imshow(init_mask);
     b = bwboundaries(init_mask); b = b{1,1}; %coords of edge of mask
     [h w] = size(b);
-    density = floor(h/s);
+    density = h/s;
     local_windows_center_cell = cell(1,s);
-    for i = 1:density:h %floor(h/density)
-        r  = b(i,1); c= b(i,2);
-        local_windows_center_cell{1,(i-1)/density+1} = [r c];
+    for i = 1:s
+        ind = uint32(i*density);
+        r  = b(ind,1); c= b(ind,2);
+        local_windows_center_cell{1,i} = [r c];
     end
 end
 
@@ -231,6 +256,10 @@ function local_windows_center_cell2 = get_new_windows_centers(local_windows_mask
         [newr,newc] = transformPointsForward(my_tform,cr,cc);
      
         local_windows_center_cell2{1,i} = uint32([newr newc]);
+        %fprintf("(%d, %d):(%d,%d)\n",cr,uint32(newr),cc,uint32(newc));
+        if uint32(newr-cr) > 0 || uint32(newc-cc) > 0
+            fprintf("(%d, %d):(%d,%d)\n",cr,uint32(newr),cc,uint32(newc));
+        end
     end
 
     opticFlow = opticalFlowFarneback;
@@ -250,10 +279,17 @@ function local_windows_center_cell2 = get_new_windows_centers(local_windows_mask
             Vxmean = 0; Vymean = 0;
         end
         
+        if abs(uint32(Vxmean)) > 0 || abs(uint32(Vymean)) > 0
+            fprintf("optical flow %d, %d\n",Vxmean, Vymean);
+        end
+        
         local_windows_center_cell2{1,i} = uint32(double(local_windows_center_cell2{1,i}) + [Vxmean Vymean]);
+        if local_windows_center_cell2{1,i} ~=   local_windows_center_cell{1,i}
+            fprintf("GAH\n");
+        end
     end
     
-    
+   
 end
 
 
@@ -304,6 +340,9 @@ function [combined_color_prob_cell2,foreground_model_cell, background_model_cell
             background_model_cell{1,i} = background_model;
         end
         imshow(combined_color_prob_cell2{1,i});
+        hold on
+        plot(uint32(c/2), uint32(r/2), 'r*', 'LineWidth', 2, 'MarkerSize', 5);
+        hold off
     end
 end
 
@@ -318,7 +357,7 @@ function total_confidence_cell = get_total_confidence_cell(shape_model_confidenc
     end
 end
 
-function foreground2 = get_final_mask(I,local_windows_center_cell2,total_confidence_cell,whole_mask,halfw,s)
+function foreground2 = get_final_mask(I,local_windows_center_cell2,total_confidence_cell,halfw,s)
     [h w] = size(I); eps = 0.1;
     foreground2 = zeros([h w]);%double(whole_mask); %idea wass to fill in middle
     for r =1:h
@@ -327,9 +366,10 @@ function foreground2 = get_final_mask(I,local_windows_center_cell2,total_confide
             for i = 1:s
                 center =  local_windows_center_cell2{1,i}; cr = center(1); cc = center(2);
                 if (r <= cr+halfw && r >= cr-halfw) && (c <= cc+halfw && c >= cc-halfw)
-                    d = 1/(sqrt((r-halfw).^2 +(c-halfw).^2)+eps);
+                    d = 1/(sqrt(double((r-cr).^2 +(c-cc).^2))+eps);
                     window_r = (r-cr)+halfw+1; window_c = (c-cc)+halfw+1;
-                    numer = numer + total_confidence_cell{1,i}(window_r,window_c) * d;
+                    prob = total_confidence_cell{1,i}(window_r,window_c);
+                    numer = numer + prob * d;
                     denom = denom + d;
                 end
             end
@@ -338,6 +378,40 @@ function foreground2 = get_final_mask(I,local_windows_center_cell2,total_confide
             end
         end
     end
+end
+
+
+function foreground2 = get_final_mask_SHAPE(I,local_windows_center_cell2,total_confidence_cell,halfw,s)
+    [h w] = size(I); eps = 0.1;
+    foreground2 = zeros([h w 3]);
+    for r =1:h
+        for c = 1:w
+            numer = 0; denom = 0; count = 0;
+            for i = 1:s
+                center =  local_windows_center_cell2{1,i}; cr = center(1); cc = center(2);
+                if (r <= cr+halfw && r >= cr-halfw) && (c <= cc+halfw && c >= cc-halfw)
+                    %dist = sqrt(double((r-cr).^2 +(c-cc).^2));
+                    count = count +1;
+                    dist = pdist([double(r) double(c); double(cr) double(cc)],'euclidean');
+                    d = 1/(dist+eps);
+                    window_r = (r-cr)+halfw+1; window_c = (c-cc)+halfw+1;
+                    prob = total_confidence_cell{1,i}(window_r,window_c);
+                    numer = numer + prob * d;
+                    denom = denom + d;
+                end
+            end
+            if denom > 0 
+                if count == 1
+                    foreground2(r,c,1) = numer/denom;
+                elseif count == 2
+                    foreground2(r,c,2) = numer/denom;
+                else
+                    foreground2(r,c,3) = numer/denom;
+                end
+            end
+        end
+    end
+    save_image_with_boxes(foreground2,local_windows_center_cell2,halfw,s,sprintf("../Output/shape_thing_with_boxes.png"));
 end
 
 function BW_foreground = get_snapped(I,foreground)
@@ -353,11 +427,13 @@ function save_image_with_boxes(I,local_windows_center_cell_curr,halfw,s,filename
     for i = 1:s
         center = local_windows_center_cell_curr{1,i};
         cr = center(1); cc = center(2);
-        %rectangle('Position',[cc-halfw,cr-halfw,halfw*2+1,halfw*2+1]);
-        if mod(i,2) == 0 
+        rectangle('Position',[cc-halfw,cr-halfw,halfw*2+1,halfw*2+1],'EdgeColor','r');
+        if mod(i,3) == 0 
             plot(cc, cr, 'r*', 'LineWidth', 2, 'MarkerSize', 5);
-        else
+        elseif mod(i,3) == 1 
             plot(cc, cr, 'y*', 'LineWidth', 2, 'MarkerSize', 5);
+        else
+            plot(cc, cr, 'g*', 'LineWidth', 2, 'MarkerSize', 5);
         end
     end
     hold off 
