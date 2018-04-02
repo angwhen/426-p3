@@ -1,4 +1,4 @@
-folder_name = 'Frames4';
+folder_name = 'Frames1';
 num_images = size(dir(['../' folder_name '/*.jpg']),1); 
 images_cell = cell(1,num_images);
 for i=1:num_images
@@ -8,7 +8,7 @@ end
 
 %imshow(images_cell{1,1});
 %init_mask = roipoly();
-init_mask = load('frames4_mask1'); init_mask = init_mask.init_mask;
+init_mask = load('frames1_mask1'); init_mask = init_mask.init_mask;
 
 %% Get transformations between frames 
 %estimate whole object motion
@@ -152,7 +152,6 @@ end
 disp("DONE WITH ALL THE FRAMES!");
 
 function local_windows_center_cell = get_window_pos_orig(init_mask,s)
-    imshow(init_mask);
     B = bwboundaries(init_mask); 
     % use the biggest thing in B
     bsizes = cellfun('size',B,1); 
@@ -222,7 +221,7 @@ function [combined_color_prob_cell, foreground_model_cell, background_model_cell
 
         comb_prob = fore_prob./(fore_prob+back_prob);
         combined_color_prob_cell{1,i} = reshape(comb_prob,[r c]); 
-        imshow(combined_color_prob_cell{1,i});
+        %imshow(combined_color_prob_cell{1,i});
     end
 end
 
@@ -308,6 +307,11 @@ function [combined_color_prob_cell2,foreground_model_cell, background_model_cell
         [r c] = find(bwdist(inverted)>5);
         foreground_pix = rgb2lab(impixel(local_windows_image_cell2{1,i},c,r));
         [a b] = size(foreground_pix);
+        if a < 200 %if not enough data so loosen boundary
+            [r c] = find(bwdist(inverted)>1);
+            foreground_pix = rgb2lab(impixel(local_windows_image_cell2{1,i},c,r));
+            [a b] = size(foreground_pix);
+        end
         if a > b
             foreground_model = fitgmdist(foreground_pix,1,'CovarianceType','diagonal','RegularizationValue',0.001);
         else
@@ -317,6 +321,11 @@ function [combined_color_prob_cell2,foreground_model_cell, background_model_cell
         [r c] = find(bwdist(local_windows_mask_cell_prev2{1,i})>5);
         background_pix = rgb2lab(impixel(local_windows_image_cell2{1,i},c,r));
         [a b] = size(background_pix);
+        if a < 200
+            [r c] = find(bwdist(local_windows_mask_cell_prev2{1,i})>1);
+            background_pix = rgb2lab(impixel(local_windows_image_cell2{1,i},c,r));
+            [a b] = size(background_pix);
+        end
         if a > b
             background_model = fitgmdist(background_pix,1,'CovarianceType','diagonal','RegularizationValue',0.001);
         else
@@ -398,13 +407,6 @@ function save_image_with_boxes(I,local_windows_center_cell_curr,halfw,s,filename
         cr = center(1); cc = center(2);
         rectangle('Position',[cc-halfw,cr-halfw,halfw*2+1,halfw*2+1],'EdgeColor','r');
         plot(cc, cr, 'r*', 'LineWidth', 2, 'MarkerSize', 5);
-%         if mod(i,3) == 0 
-%             plot(cc, cr, 'r*', 'LineWidth', 2, 'MarkerSize', 5);
-%         elseif mod(i,3) == 1 
-%             plot(cc, cr, 'y*', 'LineWidth', 2, 'MarkerSize', 5);
-%         else
-%             plot(cc, cr, 'g*', 'LineWidth', 2, 'MarkerSize', 5);
-%         end
     end
     hold off 
     saveas(gcf,filename);
