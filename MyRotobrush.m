@@ -1,4 +1,4 @@
-folder_name = 'Frames1';
+folder_name = 'Frames4';
 num_images = size(dir(['../' folder_name '/*.jpg']),1); 
 images_cell = cell(1,num_images);
 for i=1:num_images
@@ -8,7 +8,7 @@ end
 
 %imshow(images_cell{1,1});
 %init_mask = roipoly();
-init_mask = load('frames1_mask1'); init_mask = init_mask.init_mask;
+init_mask = load('frames4_mask1'); init_mask = init_mask.init_mask;
 
 %% Get transformations between frames 
 %estimate whole object motion
@@ -26,7 +26,7 @@ for i = 2:num_images
     transformation_cell{1,i-1} = estimateGeometricTransform(matchedPoints2,matchedPoints1,'affine');
 end
 
-halfw = 30; s = 60; % s is how many windows total
+halfw = 50; s = 60; % s is how many windows total
 
 local_windows_center_cell_prev = get_window_pos_orig(init_mask,s);
 local_windows_image_cell_prev = get_local_windows(images_cell{1,1},local_windows_center_cell_prev, halfw);
@@ -40,6 +40,7 @@ total_confidence_cell_prev = get_total_confidence_cell(shape_model_confidence_ma
 foreground_prob_prev = get_final_mask(rgb2gray(images_cell{1,1}),local_windows_center_cell_prev,total_confidence_cell_prev,halfw,s);
 %foreground_curr = get_snapped(foreground_prob_prev,foreground_prob_prev);
 foreground_prev = foreground_prob_prev > 0.7;
+foreground_prev=imfill(foreground_prev,'holes');
 imshow(foreground_prev);
 
 save_image_with_boxes(images_cell{1,1},local_windows_center_cell_prev,halfw,s,sprintf('../MyOutput/%s/Windows_On_Image_1.png',folder_name));
@@ -63,13 +64,13 @@ hold off
 saveas(gcf,sprintf('../MyOutput/%s/Highlighted_%d.png',folder_name,1));
 %imwrite(uint8(double(images_cell{1,1}).*foreground_prev),sprintf('../MyOutput/%s/Image_Cutout_1.png',folder_name));
 
-subplot(2,2,1), imshow(local_windows_image_cell_prev{1,1});
-subplot(2,2,2), imshow(combined_color_prob_cell_prev{1,1});
-subplot(2,2,3), imshow(shape_model_confidence_mask_cell_prev{1,1});
-subplot(2,2,4), imshow(local_windows_mask_cell_prev{1,1});
-saveas(gcf,sprintf('../MyOutput/OutputWindow/%s/Window1_1.png',folder_name));   
-close all
-figure
+% subplot(2,2,1), imshow(local_windows_image_cell_prev{1,1});
+% subplot(2,2,2), imshow(combined_color_prob_cell_prev{1,1});
+% subplot(2,2,3), imshow(shape_model_confidence_mask_cell_prev{1,1});
+% subplot(2,2,4), imshow(local_windows_mask_cell_prev{1,1});
+% saveas(gcf,sprintf('../MyOutput/OutputWindow/%s/Window1_1.png',folder_name));   
+% close all
+% figure
 
 prev_mask = foreground_prev;
 %imshow(get_final_mask(rgb2gray(images_cell{1,1}),local_windows_center_cell_prev,get_local_windows(prev_mask,local_windows_center_cell_prev, halfw),0,halfw,s));
@@ -107,6 +108,7 @@ for frame =2:num_images
     foreground_prob_curr = get_final_mask(rgb2gray(images_cell{1,frame}),local_windows_center_cell_curr,total_confidence_cell_curr,halfw,s);
     %foreground_curr = get_snapped(foreground_prob_curr,foreground_prob_curr);
     foreground_curr = foreground_prob_curr >0.7;
+    foreground_curr=imfill(foreground_curr,'holes');
     
     %setting to prev
     prev_mask = foreground_curr;
@@ -139,14 +141,15 @@ for frame =2:num_images
     %imwrite(uint8(double(images_cell{1,frame}).*foreground_curr),sprintf('../MyOutput/%s/Image_Cutout_%d.png',folder_name,frame));
     
     %save for just one window
-    subplot(2,2,1), imshow(local_windows_image_cell_curr{1,1});
-    subplot(2,2,2), imshow(combined_color_prob_cell_curr{1,1});
-    subplot(2,2,3), imshow(shape_model_confidence_mask_cell_prev{1,1});
-    subplot(2,2,4), imshow(local_windows_mask_cell_prev{1,1});
-    saveas(gcf,sprintf('../MyOutput/OutputWindow/%s/Window1_%d.png',folder_name,frame));   
-    close all
-    figure
+%     subplot(2,2,1), imshow(local_windows_image_cell_curr{1,1});
+%     subplot(2,2,2), imshow(combined_color_prob_cell_curr{1,1});
+%     subplot(2,2,3), imshow(shape_model_confidence_mask_cell_prev{1,1});
+%     subplot(2,2,4), imshow(local_windows_mask_cell_prev{1,1});
+%     saveas(gcf,sprintf('../MyOutput/OutputWindow/%s/Window1_%d.png',folder_name,frame));   
+%     close all
+%     figure
 end
+disp("DONE WITH ALL THE FRAMES!");
 
 function local_windows_center_cell = get_window_pos_orig(init_mask,s)
     imshow(init_mask);
