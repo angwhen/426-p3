@@ -13,21 +13,21 @@ init_mask = load('frames3_mask1'); init_mask = init_mask.init_mask;
 
 %% Get transformations between frames 
 %estimate whole object motion
-transformation_cell = cell(1,num_images-1);
-for i = 2:num_images
-    gray_im1 = rgb2gray(images_cell{1,i-1});
-    gray_im2 = rgb2gray(images_cell{1,i});
-    points1 = detectSURFFeatures(gray_im1,'MetricThreshold',1500);
-    points2 = detectSURFFeatures(gray_im2,'MetricThreshold',1500);
-    [features1, validpts1]  = extractFeatures(gray_im1,points1);
-    [features2, validpts2] = extractFeatures(gray_im2,points2);
-    indexPairs = matchFeatures(features1,features2);
-    matchedPoints1 = validpts1(indexPairs(:,1));
-    matchedPoints2 = validpts2(indexPairs(:,2));
-    transformation_cell{1,i-1} = estimateGeometricTransform(matchedPoints2,matchedPoints1,'affine');
-end
+% transformation_cell = cell(1,num_images-1);
+% for i = 2:num_images
+%     gray_im1 = rgb2gray(images_cell{1,i-1});
+%     gray_im2 = rgb2gray(images_cell{1,i});
+%     points1 = detectSURFFeatures(gray_im1,'MetricThreshold',1500);
+%     points2 = detectSURFFeatures(gray_im2,'MetricThreshold',1500);
+%     [features1, validpts1]  = extractFeatures(gray_im1,points1);
+%     [features2, validpts2] = extractFeatures(gray_im2,points2);
+%     indexPairs = matchFeatures(features1,features2);
+%     matchedPoints1 = validpts1(indexPairs(:,1));
+%     matchedPoints2 = validpts2(indexPairs(:,2));
+%     transformation_cell{1,i-1} = estimateGeometricTransform(matchedPoints2,matchedPoints1,'affine');
+% end
 
-halfw = 30; s = 80; % s is how many windows total
+halfw = 30; s = 50; % s is how many windows total
 
 local_windows_center_cell_prev = get_window_pos_orig(init_mask,s);
 local_windows_image_cell_prev = get_local_windows(images_cell{1,1},local_windows_center_cell_prev, halfw);
@@ -73,7 +73,28 @@ for frame =2:num_images
     %object motion, moving windows
     R = imref2d(size(prev_mask));
     %new_mask = imwarp(prev_mask,transformation_cell{1,frame-1},'OutputView',R);
-    warped_image = imwarp(images_cell{1,frame-1},transformation_cell{1,frame-1},'OutputView',R);
+    
+    %calculate transformation
+    gray_im1 = rgb2gray(images_cell{1,frame-1});
+    gray_im2 = rgb2gray(images_cell{1,frame});
+    % crop the images to only around the target area
+    center_arr = reshape(cell2mat(local_windows_center_cell_prev),[s 2]);
+    minr = min(center_arr(:,1)); maxr = max(center_arr(:,1)); 
+    minc = min(center_arr(:,2)); maxc = max(center_arr(:,2)); 
+    gray_im1 =gray_im1(minr-halfw-5:maxr+halfw+5,minc-halfw-5:maxc+halfw+5);
+    gray_im2 =gray_im2(minr-halfw-5:maxr+halfw+5,minc-halfw-5:maxc+halfw+5);
+    %match stuff
+    points1 = detectSURFFeatures(gray_im1,'MetricThreshold',100);
+    points2 = detectSURFFeatures(gray_im2,'MetricThreshold',100);
+    [features1, validpts1]  = extractFeatures(gray_im1,points1);
+    [features2, validpts2] = extractFeatures(gray_im2,points2);
+    indexPairs = matchFeatures(features1,features2);
+    matchedPoints1 = validpts1(indexPairs(:,1));
+    matchedPoints2 = validpts2(indexPairs(:,2));
+    showMatchedFeatures(gray_im1,gray_im2, matchedPoints1, matchedPoints2,'montage');
+   	my_transformation= estimateGeometricTransform(matchedPoints2,matchedPoints1,'affine');
+    
+    warped_image = imwarp(images_cell{1,frame-1},my_transformation,'OutputView',R);
     
     %local_windows_center_cell_prev = get_window_pos_orig(prev_mask,s);
     local_windows_center_cell_curr = get_new_windows_centers(local_windows_mask_cell_prev,local_windows_center_cell_prev,warped_image,images_cell{1,frame},transformation_cell{1,frame-1},halfw,s,frame,folder_name);
@@ -123,17 +144,6 @@ for frame =2:num_images
     imwrite(local_shape_conf_to_save,sprintf('../MyOutput/%s/Local_Shape_Conf_%d.png',folder_name,frame));
     
     B = bwboundaries(foreground_curr);
-%     bsizes = cellfun('size',B,1);  
-%     [M, maxes_ind] = max(bsizes); 
-%     b = B{maxes_ind};
-%     imshow(images_cell{1,frame});
-%     hold on
-%     for k = 1:length(b)
-%         boundary = b(k,:);
-%         plot(boundary(2), boundary(1), 'y', 'LineWidth', 2);
-%     end
-%     hold off
-
     imshow(images_cell{1,frame});
     hold on
     for k = 1:length(B)
@@ -258,6 +268,7 @@ function local_windows_center_cell2 = get_new_windows_centers(local_windows_mask
     % DO CENTER MOVING WITH TRANSFORM
     [myh myw] = size(rgb2gray(curr_image));
     local_windows_center_cell2 = cell(1,s);
+    rotation_cell = cell(1,s);
     for i = 1:s
         mycenter = local_windows_center_cell{1,i}; cr = double(mycenter(1)); cc = double(mycenter(2));
         [newr,newc] = transformPointsForward(my_tform,cr,cc);
@@ -270,7 +281,6 @@ function local_windows_center_cell2 = get_new_windows_centers(local_windows_mask
     flow = estimateFlow(opticFlow,rgb2gray(next_image));
     VxWindows = get_local_windows(flow.Vx,local_windows_center_cell2, halfw);
     VyWindows = get_local_windows(flow.Vy,local_windows_center_cell2, halfw);
-    
 %     imshow(imfuse(curr_image,next_image));
 %     hold on
 %     plot(flow,'DecimationFactor',[15 15],'ScaleFactor',5);
