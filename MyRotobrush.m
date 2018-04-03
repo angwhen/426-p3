@@ -1,4 +1,4 @@
-folder_name = 'Frames1';
+folder_name = 'Frames2';
 num_images = size(dir(['../' folder_name '/*.jpg']),1); 
 images_cell = cell(1,num_images);
 for i=1:num_images
@@ -8,7 +8,7 @@ end
 
 %imshow(images_cell{1,1});
 %init_mask = roipoly();
-init_mask = load('frames1_mask1'); init_mask = init_mask.init_mask;
+init_mask = load('frames2_mask1'); init_mask = init_mask.init_mask;
 
 %% Get transformations between frames 
 %estimate whole object motion
@@ -26,6 +26,9 @@ for i = 2:num_images
     transformation_cell{1,i-1} = estimateGeometricTransform(matchedPoints2,matchedPoints1,'affine');
 end
 
+%initialize banks for textons
+filter_bank = get_filter_bank();
+
 halfw = 50; s = 60; % s is how many windows total
 
 local_windows_center_cell_prev = get_window_pos_orig(init_mask,s);
@@ -33,6 +36,18 @@ local_windows_image_cell_prev = get_local_windows(images_cell{1,1},local_windows
 local_windows_mask_cell_prev = get_local_windows(init_mask,local_windows_center_cell_prev, halfw);
 %[i, s] = size(local_windows_image_cell_prev); % s is number of windows
 [combined_color_prob_cell_prev foreground_model_cell background_model_cell]= get_combined_color_prob_cell(local_windows_mask_cell_prev, local_windows_image_cell_prev, s);
+
+% TEXTON STEP
+centers_arr = cell2mat(local_windows_center_cell_prev);
+minr = min(centers_arr(:,1)); maxr = max(centers_arr(:,1));
+minc = min(centers_arr(:,2)); maxc = max(centers_arr(:,2));
+I = images_cell{1,1};
+texton_map_crop = get_texton_map(I(minc-halfw-5:maxc+halfw+5,minc-halfw-5:maxc+halfw+5,:),filter_bank);
+texton_map = zeros(size(rgb2gray(I)));
+texton_map(minc-halfw-5:maxc+halfw+5,minc-halfw-5:maxc+halfw+5) = texton_map_crop;
+imagesc(texton_map); colormap(jet);
+ 
+
 color_model_confidence_cell_prev = get_color_model_confidence(local_windows_mask_cell_prev, combined_color_prob_cell_prev,halfw,s);
 shape_model_confidence_mask_cell_prev = get_shape_model_confidence_mask_cell(local_windows_mask_cell_prev,color_model_confidence_cell_prev,halfw,s);
 total_confidence_cell_prev = get_total_confidence_cell(shape_model_confidence_mask_cell_prev,combined_color_prob_cell_prev,local_windows_mask_cell_prev,s);
@@ -410,4 +425,54 @@ function save_image_with_boxes(I,local_windows_center_cell_curr,halfw,s,filename
     end
     hold off 
     saveas(gcf,filename);
+end
+
+
+function filter_bank = get_filter_bank()
+    sobel = [-1 0 1; -2 0 2; -1 0 1];
+    big_first = conv2(sobel, make_gaussian_matrix(10,1,4));
+    small_first = conv2(sobel, make_gaussian_matrix(10,5,1));
+
+    filter_bank = cell(2,12);
+    for angle = 0:30:330
+        filter_bank{1,angle/30+1} =  imrotate(big_first,angle,'bilinear','crop');
+        filter_bank{2,angle/30+1} =  imrotate(small_first,angle,'bilinear','crop');
+    end
+end
+
+function texton_map = get_texton_map(I,filter_bank)
+    % filter everything
+    [h,w] = size(filter_bank);
+    filter_bank = reshape(filter_bank,[1,h*w]);
+    test_images_filtered_cell = cell(1,h*w);
+    for f = 1:(w*h)
+        test_images_filtered_cell{1,f} = imfilter(I,filter_bank{1,f});
+    end
+    [~,numfilts] = size(test_images_filtered_cell);
+    filtered_image = test_images_filtered_cell{1,1};
+    for f = 2:numfilts
+       filtered_image = cat(3, filtered_image,test_images_filtered_cell{1,f});
+    end 
+    
+    %kmeans the filtered image
+    bin_values = 10;
+    [x,y,z] = size(filtered_image);
+    shaped_image = reshape(filtered_image,[x*y,z]);
+
+    disp('starting k means')
+    idx = kmeans(double(shaped_image),bin_values,'MaxIter',250);
+    disp('ending kmeans')
+
+    texton_map = reshape(idx, [x,y]);
+    %imagesc(texton_map); colormap(jet);
+end
+
+% Create Gaussian Matrices
+function gauss = make_gaussian_matrix(size,sigma,elongation_factor)
+    gauss = ones(size,size);
+    for i = 1:size;
+       for j = 1:size;
+           gauss(i,j) = exp(-(((i-size/2)/elongation_factor).^2+(j-size/2).^2)/(2*sigma.^2));
+       end
+    end
 end
