@@ -17,8 +17,8 @@ transformation_cell = cell(1,num_images-1);
 for i = 2:num_images
     gray_im1 = rgb2gray(images_cell{1,i-1});
     gray_im2 = rgb2gray(images_cell{1,i});
-    points1 = detectSURFFeatures(gray_im1,'MetricThreshold',200);
-    points2 = detectSURFFeatures(gray_im2,'MetricThreshold',200);
+    points1 = detectSURFFeatures(gray_im1,'MetricThreshold',500);
+    points2 = detectSURFFeatures(gray_im2,'MetricThreshold',500);
     [features1, validpts1]  = extractFeatures(gray_im1,points1);
     [features2, validpts2] = extractFeatures(gray_im2,points2);
     indexPairs = matchFeatures(features1,features2);
@@ -27,7 +27,7 @@ for i = 2:num_images
     transformation_cell{1,i-1} = estimateGeometricTransform(matchedPoints2,matchedPoints1,'affine');
 end
 
-halfw = 40; s = 60; % s is how many windows total
+halfw = 60; s = 20; % s is how many windows total
 
 local_windows_center_cell_prev = get_window_pos_orig(init_mask,s);
 local_windows_image_cell_prev = get_local_windows(images_cell{1,1},local_windows_center_cell_prev, halfw);
@@ -63,18 +63,10 @@ for k = 1:length(B)
 end
 hold off
 saveas(gcf,sprintf('../MyOutput/%s/Highlighted_%d.png',folder_name,1));
-%imwrite(uint8(double(images_cell{1,1}).*foreground_prev),sprintf('../MyOutput/%s/Image_Cutout_1.png',folder_name));
-
-% subplot(2,2,1), imshow(local_windows_image_cell_prev{1,1});
-% subplot(2,2,2), imshow(combined_color_prob_cell_prev{1,1});
-% subplot(2,2,3), imshow(shape_model_confidence_mask_cell_prev{1,1});
-% subplot(2,2,4), imshow(local_windows_mask_cell_prev{1,1});
-% saveas(gcf,sprintf('../MyOutput/OutputWindow/%s/Window1_1.png',folder_name));   
-% close all
-% figure
+close all
+figure
 
 prev_mask = foreground_prev;
-%imshow(get_final_mask(rgb2gray(images_cell{1,1}),local_windows_center_cell_prev,get_local_windows(prev_mask,local_windows_center_cell_prev, halfw),0,halfw,s));
 
 for frame =2:num_images
     fprintf("curr frame is %d\n",frame);
@@ -131,6 +123,17 @@ for frame =2:num_images
     imwrite(local_shape_conf_to_save,sprintf('../MyOutput/%s/Local_Shape_Conf_%d.png',folder_name,frame));
     
     B = bwboundaries(foreground_curr);
+%     bsizes = cellfun('size',B,1);  
+%     [M, maxes_ind] = max(bsizes); 
+%     b = B{maxes_ind};
+%     imshow(images_cell{1,frame});
+%     hold on
+%     for k = 1:length(b)
+%         boundary = b(k,:);
+%         plot(boundary(2), boundary(1), 'y', 'LineWidth', 2);
+%     end
+%     hold off
+
     imshow(images_cell{1,frame});
     hold on
     for k = 1:length(B)
@@ -141,14 +144,6 @@ for frame =2:num_images
     saveas(gcf,sprintf('../MyOutput/%s/Highlighted_%d.png',folder_name,frame));
     %imwrite(uint8(double(images_cell{1,frame}).*foreground_curr),sprintf('../MyOutput/%s/Image_Cutout_%d.png',folder_name,frame));
     
-    %save for just one window
-%     subplot(2,2,1), imshow(local_windows_image_cell_curr{1,1});
-%     subplot(2,2,2), imshow(combined_color_prob_cell_curr{1,1});
-%     subplot(2,2,3), imshow(shape_model_confidence_mask_cell_prev{1,1});
-%     subplot(2,2,4), imshow(local_windows_mask_cell_prev{1,1});
-%     saveas(gcf,sprintf('../MyOutput/OutputWindow/%s/Window1_%d.png',folder_name,frame));   
-%     close all
-%     figure
 end
 disp("DONE WITH ALL THE FRAMES!");
 
@@ -159,13 +154,13 @@ function local_windows_center_cell = get_window_pos_orig(init_mask,s)
     [M I] = max(bsizes);
     b = B{I};
     
-    imshow(init_mask);
-    hold on
-    for k = 1:length(B)
-        boundary = B{k};
-        plot(boundary(:,2), boundary(:,1), 'y', 'LineWidth', 2)
-    end
-    hold off
+%     imshow(init_mask);
+%     hold on
+%     for k = 1:length(B)
+%         boundary = B{k};
+%         plot(boundary(:,2), boundary(:,1), 'y', 'LineWidth', 2)
+%     end
+%     hold off
     
     [h w] = size(b);
     density = (h/s);
@@ -199,18 +194,19 @@ function [combined_color_prob_cell, foreground_model_cell, background_model_cell
     combined_color_prob_cell = cell(1,s);
     foreground_model_cell = cell(1,s);
     background_model_cell = cell(1,s);
+    options = statset('MaxIter',500);
     for i = 1:s
-        curr_image = local_windows_image_cell{1,i},5;
+        curr_image = local_windows_image_cell{1,i};
         inverted = local_windows_mask_cell_prev{1,i}==0; %background becomes non zero
         
         [r c] = find(bwdist(inverted)>2);
         foreground_pix = rgb2lab(impixel(curr_image,c,r));
-        foreground_model = fitgmdist(foreground_pix,1,'CovarianceType','diagonal','RegularizationValue',0.001);
+        foreground_model = fitgmdist(foreground_pix,3,'CovarianceType','diagonal','RegularizationValue',0.001,'Options',options);
         foreground_model_cell{1,i} = foreground_model;
         
         [r c] = find(bwdist(local_windows_mask_cell_prev{1,i})>2); %find all non zero that are more than 2 away from foreground 
         background_pix = rgb2lab(impixel(curr_image,c,r));
-        background_model = fitgmdist(background_pix,1,'CovarianceType','diagonal','RegularizationValue',0.001);
+        background_model = fitgmdist(background_pix,3,'CovarianceType','diagonal','RegularizationValue',0.001,'Options',options);
         background_model_cell{1,i} = background_model;
         
         % probs
@@ -278,11 +274,11 @@ function local_windows_center_cell2 = get_new_windows_centers(local_windows_mask
     VxWindows = get_local_windows(flow.Vx,local_windows_center_cell2, halfw);
     VyWindows = get_local_windows(flow.Vy,local_windows_center_cell2, halfw);
     
-    imshow(imfuse(curr_image,next_image));
-    hold on
-    plot(flow,'DecimationFactor',[15 15],'ScaleFactor',5);
-    hold off;
-    saveas(gcf,sprintf('../MyOutput/%s/OpticalFlow_%d.png',folder_name,frame));
+%     imshow(imfuse(curr_image,next_image));
+%     hold on
+%     plot(flow,'DecimationFactor',[15 15],'ScaleFactor',5);
+%     hold off;
+%     saveas(gcf,sprintf('../MyOutput/%s/OpticalFlow_%d.png',folder_name,frame));
     
     for i = 1:s
         %get mean within foreground
@@ -296,15 +292,8 @@ function local_windows_center_cell2 = get_new_windows_centers(local_windows_mask
         end
 
         new_center = uint32(double(local_windows_center_cell2{1,i}) + [Vymean Vxmean]);
-        if new_center(1)+halfw >= myh
-            my_center(1) = myh-halfw-2;
-        elseif new_center(1)-halfw <= 1
-            my_center(1) = halfw+2;
-        end
-        if new_center(2)+halfw >= myw
-            my_center(2) = myw-halfw-2;
-        elseif new_center(2)-halfw <= 1
-            my_center(2) = halfw+2;
+        if new_center(1)+halfw >= myh || new_center(1)-halfw <= 1 || new_center(2)+halfw >= myw || new_center(2)-halfw <= 1
+            new_center = local_windows_center_cell2{1,randi(i-1)}; 
         end
         local_windows_center_cell2{1,i} = new_center;
     end
@@ -315,6 +304,9 @@ end
 %make new color models
 function [combined_color_prob_cell2,foreground_model_cell, background_model_cell] = get_combined_color_prob_cell2(local_windows_mask_cell_prev2, local_windows_image_cell2,prev_combined_color_prob_cell, foreground_model_cell_prev, background_model_cell_prev,s)
     combined_color_prob_cell2 = cell(1,s);
+    foreground_model_cell = cell(1,s);
+    background_model_cell = cell(1,s);
+    options = statset('MaxIter',500);
     for i = 1:s
         inverted = local_windows_mask_cell_prev2{1,i}==0;
         [r c] = find(bwdist(inverted)>5);
@@ -326,7 +318,7 @@ function [combined_color_prob_cell2,foreground_model_cell, background_model_cell
             [a b] = size(foreground_pix);
         end
         if a > b
-            foreground_model = fitgmdist(foreground_pix,1,'CovarianceType','diagonal','RegularizationValue',0.001);
+            foreground_model = fitgmdist(foreground_pix,3,'CovarianceType','diagonal','RegularizationValue',0.001,'Options',options);
         else
             foreground_model =  foreground_model_cell_prev{1,i};
         end
@@ -340,7 +332,7 @@ function [combined_color_prob_cell2,foreground_model_cell, background_model_cell
             [a b] = size(background_pix);
         end
         if a > b
-            background_model = fitgmdist(background_pix,1,'CovarianceType','diagonal','RegularizationValue',0.001);
+            background_model = fitgmdist(background_pix,3,'CovarianceType','diagonal','RegularizationValue',0.001,'Options',options);
         else
             background_model =  background_model_cell_prev{1,i};
         end
@@ -359,19 +351,21 @@ function [combined_color_prob_cell2,foreground_model_cell, background_model_cell
         back_prob_prev = pdf(background_model_cell_prev{1,i},values);
         comb_prob_prev = fore_prob_prev./(fore_prob_prev+back_prob_prev);
         
-        if sum(comb_prob >0.5) > sum(comb_prob_prev>0.5) % use prev model
+        if sum(comb_prob >0.2) > sum(comb_prob_prev>0.5) % use prev model
+            %disp("prev color");
             combined_color_prob_cell2{1,i} = reshape(comb_prob_prev,[r c]); 
             foreground_model_cell{1,i} = foreground_model_cell_prev{1,i};
             background_model_cell{1,i} = background_model_cell_prev{1,i};
         else
+            %disp("new color");
             combined_color_prob_cell2{1,i} = reshape(comb_prob,[r c]); 
             foreground_model_cell{1,i} = foreground_model;
             background_model_cell{1,i} = background_model;
         end
-        imshow(combined_color_prob_cell2{1,i});
-        hold on
-        plot(uint32(c/2), uint32(r/2), 'r*', 'LineWidth', 2, 'MarkerSize', 5);
-        hold off
+%         imshow(combined_color_prob_cell2{1,i});
+%         hold on
+%         plot(uint32(c/2), uint32(r/2), 'r*', 'LineWidth', 2, 'MarkerSize', 5);
+%         hold off
     end
 end
 
