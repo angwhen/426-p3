@@ -1,4 +1,4 @@
-folder_name = 'Frames2';
+folder_name = 'Frames5';
 num_images = size(dir(['../' folder_name '/*.jpg']),1); 
 images_cell = cell(1,num_images);
 for i=1:num_images
@@ -8,7 +8,7 @@ end
 
 %imshow(images_cell{1,1});
 %init_mask = roipoly();
-init_mask = load('frames2_mask1'); init_mask = init_mask.init_mask;
+init_mask = load('frames5_mask1'); init_mask = init_mask.init_mask;
 
 %% Get transformations between frames 
 %estimate whole object motion
@@ -38,22 +38,18 @@ local_windows_mask_cell_prev = get_local_windows(init_mask,local_windows_center_
 [combined_color_prob_cell_prev foreground_model_cell background_model_cell]= get_combined_color_prob_cell(local_windows_mask_cell_prev, local_windows_image_cell_prev, s);
 
 % TEXTON STEP
-centers_arr = cell2mat(local_windows_center_cell_prev);
-minr = min(centers_arr(:,1)); maxr = max(centers_arr(:,1));
-minc = min(centers_arr(:,2)); maxc = max(centers_arr(:,2));
-I = images_cell{1,1};
-texton_map_crop = get_texton_map(I(minc-halfw-5:maxc+halfw+5,minc-halfw-5:maxc+halfw+5,:),filter_bank);
-texton_map = zeros(size(rgb2gray(I)));
-texton_map(minc-halfw-5:maxc+halfw+5,minc-halfw-5:maxc+halfw+5) = texton_map_crop;
+texton_map = get_texton_map(images_cell{1,1},filter_bank);
 imagesc(texton_map); colormap(jet);
- 
+local_windows_texton_cell = get_local_windows(texton_map,local_windows_center_cell_prev, halfw);
+texture_prob_cell = get_texture_prob_cell(local_windows_mask_cell_prev, local_windows_texton_cell, s);
+texture_mask = get_final_mask(rgb2gray(images_cell{1,1}),local_windows_center_cell_curr,texture_prob_cell,halfw,s);
+imshow(texture_mask);
 
 color_model_confidence_cell_prev = get_color_model_confidence(local_windows_mask_cell_prev, combined_color_prob_cell_prev,halfw,s);
 shape_model_confidence_mask_cell_prev = get_shape_model_confidence_mask_cell(local_windows_mask_cell_prev,color_model_confidence_cell_prev,halfw,s);
 total_confidence_cell_prev = get_total_confidence_cell(shape_model_confidence_mask_cell_prev,combined_color_prob_cell_prev,local_windows_mask_cell_prev,s);
 
 foreground_prob_prev = get_final_mask(rgb2gray(images_cell{1,1}),local_windows_center_cell_prev,total_confidence_cell_prev,halfw,s);
-%foreground_curr = get_snapped(foreground_prob_prev,foreground_prob_prev);
 foreground_prev = foreground_prob_prev > 0.7;
 foreground_prev=imfill(foreground_prev,'holes');
 imshow(foreground_prev);
@@ -455,7 +451,7 @@ function texton_map = get_texton_map(I,filter_bank)
     end 
     
     %kmeans the filtered image
-    bin_values = 10;
+    bin_values = 50;
     [x,y,z] = size(filtered_image);
     shaped_image = reshape(filtered_image,[x*y,z]);
 
@@ -474,5 +470,31 @@ function gauss = make_gaussian_matrix(size,sigma,elongation_factor)
        for j = 1:size;
            gauss(i,j) = exp(-(((i-size/2)/elongation_factor).^2+(j-size/2).^2)/(2*sigma.^2));
        end
+    end
+end
+
+function texture_prob_cell =  get_texture_prob_cell(local_windows_mask_cell_prev, local_windows_texton_cell, s)
+    texture_prob_cell = cell(1,s);
+    for i = 1:s
+        curr_texton_map = local_windows_texton_cell{1,i};
+        % for foreground see how mnay of each texton
+        % for background see how many of each texton
+        % assign proportions to each texton
+        foreground = local_windows_mask_cell_prev{1,i}*curr_texton_map;
+        background = (local_windows_mask_cell_prev{1,i}==0)*curr_texton_map; %background becomes non zero
+        fore_prob_cell = cell(1,10);
+        for j = 1:50
+            fore_count = sum(foreground(:) == j);
+            back_count = sum(background(:) == j);
+            if fore_count + back_count > 0 
+                fore_prob_cell{1,j} = fore_count/(back_count+fore_count);
+            else
+                fore_prob_cell{1,j}  = 0;
+            end
+        end
+        texture_prob_cell{1,i} = curr_texton_map*-1;
+        for j = 1:50
+            texture_prob_cell{1,i} (texture_prob_cell{1,i} ==-j)=fore_prob_cell{1,j};
+        end
     end
 end
