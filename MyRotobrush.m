@@ -1,4 +1,4 @@
-folder_name = 'Frames4';
+folder_name = 'Frames3';
 num_images = size(dir(['../' folder_name '/*.jpg']),1); 
 images_cell = cell(1,num_images);
 for i=1:num_images
@@ -9,7 +9,7 @@ end
 
 %imshow(images_cell{1,1});
 %init_mask = roipoly();
-init_mask = load('frames4_mask1'); init_mask = init_mask.init_mask;
+init_mask = load('frames3_mask1'); init_mask = init_mask.init_mask;
 
 %% Get transformations between frames 
 %estimate whole object motion
@@ -17,8 +17,8 @@ transformation_cell = cell(1,num_images-1);
 for i = 2:num_images
     gray_im1 = rgb2gray(images_cell{1,i-1});
     gray_im2 = rgb2gray(images_cell{1,i});
-    points1 = detectSURFFeatures(gray_im1,'MetricThreshold',500);
-    points2 = detectSURFFeatures(gray_im2,'MetricThreshold',500);
+    points1 = detectSURFFeatures(gray_im1,'MetricThreshold',1500);
+    points2 = detectSURFFeatures(gray_im2,'MetricThreshold',1500);
     [features1, validpts1]  = extractFeatures(gray_im1,points1);
     [features2, validpts2] = extractFeatures(gray_im2,points2);
     indexPairs = matchFeatures(features1,features2);
@@ -27,7 +27,7 @@ for i = 2:num_images
     transformation_cell{1,i-1} = estimateGeometricTransform(matchedPoints2,matchedPoints1,'affine');
 end
 
-halfw = 60; s = 20; % s is how many windows total
+halfw = 30; s = 80; % s is how many windows total
 
 local_windows_center_cell_prev = get_window_pos_orig(init_mask,s);
 local_windows_image_cell_prev = get_local_windows(images_cell{1,1},local_windows_center_cell_prev, halfw);
@@ -41,7 +41,7 @@ total_confidence_cell_prev = get_total_confidence_cell(shape_model_confidence_ma
 
 foreground_prob_prev = get_final_mask(rgb2gray(images_cell{1,1}),local_windows_center_cell_prev,total_confidence_cell_prev,halfw,s);
 foreground_prev = foreground_prob_prev > 0.5;
-foreground_prev=imfill(foreground_prev,'holes');
+%foreground_prev=imfill(foreground_prev,'holes');
 imshow(foreground_prev);
 
 save_image_with_boxes(images_cell{1,1},local_windows_center_cell_prev,halfw,s,sprintf('../MyOutput/%s/Windows_On_Image_1.png',folder_name));
@@ -75,7 +75,7 @@ for frame =2:num_images
     %new_mask = imwarp(prev_mask,transformation_cell{1,frame-1},'OutputView',R);
     warped_image = imwarp(images_cell{1,frame-1},transformation_cell{1,frame-1},'OutputView',R);
     
-    local_windows_center_cell_prev = get_window_pos_orig(prev_mask,s);
+    %local_windows_center_cell_prev = get_window_pos_orig(prev_mask,s);
     local_windows_center_cell_curr = get_new_windows_centers(local_windows_mask_cell_prev,local_windows_center_cell_prev,warped_image,images_cell{1,frame},transformation_cell{1,frame-1},halfw,s,frame,folder_name);
     
     save_image_with_boxes(images_cell{1,frame},local_windows_center_cell_curr,halfw,s,sprintf('../MyOutput/%s/Windows_On_Image_%d.png',folder_name,frame));
@@ -100,8 +100,8 @@ for frame =2:num_images
     %determine new mask
     foreground_prob_curr = get_final_mask(rgb2gray(images_cell{1,frame}),local_windows_center_cell_curr,total_confidence_cell_curr,halfw,s);
     %foreground_curr = get_snapped(foreground_prob_curr,foreground_prob_curr);
-    foreground_curr = foreground_prob_curr >0.3;
-    foreground_curr=imfill(foreground_curr,'holes');
+    foreground_curr = foreground_prob_curr >0.2;
+    %foreground_curr=imfill(foreground_curr,'holes');
     
     %setting to prev
     prev_mask = foreground_curr;
@@ -153,14 +153,11 @@ function local_windows_center_cell = get_window_pos_orig(init_mask,s)
     bsizes = cellfun('size',B,1); 
     [M I] = max(bsizes);
     b = B{I};
-    
-%     imshow(init_mask);
-%     hold on
-%     for k = 1:length(B)
-%         boundary = B{k};
-%         plot(boundary(:,2), boundary(:,1), 'y', 'LineWidth', 2)
-%     end
-%     hold off
+    % also get second largest for sake of hole
+%     bsizes(I) = 0;
+%     [M I2] = max(bsizes);
+%     b2 = B{I2};
+%     b = cat(1,b,b2);
     
     [h w] = size(b);
     density = (h/s);
@@ -201,12 +198,12 @@ function [combined_color_prob_cell, foreground_model_cell, background_model_cell
         
         [r c] = find(bwdist(inverted)>2);
         foreground_pix = rgb2lab(impixel(curr_image,c,r));
-        foreground_model = fitgmdist(foreground_pix,3,'CovarianceType','diagonal','RegularizationValue',0.001,'Options',options);
+        foreground_model = fitgmdist(foreground_pix,3,'RegularizationValue',0.001,'Options',options);
         foreground_model_cell{1,i} = foreground_model;
         
         [r c] = find(bwdist(local_windows_mask_cell_prev{1,i})>2); %find all non zero that are more than 2 away from foreground 
         background_pix = rgb2lab(impixel(curr_image,c,r));
-        background_model = fitgmdist(background_pix,3,'CovarianceType','diagonal','RegularizationValue',0.001,'Options',options);
+        background_model = fitgmdist(background_pix,3,'RegularizationValue',0.001,'Options',options);
         background_model_cell{1,i} = background_model;
         
         % probs
@@ -318,7 +315,7 @@ function [combined_color_prob_cell2,foreground_model_cell, background_model_cell
             [a b] = size(foreground_pix);
         end
         if a > b
-            foreground_model = fitgmdist(foreground_pix,3,'CovarianceType','diagonal','RegularizationValue',0.001,'Options',options);
+            foreground_model = fitgmdist(foreground_pix,3,'RegularizationValue',0.001,'Options',options);
         else
             foreground_model =  foreground_model_cell_prev{1,i};
         end
@@ -332,7 +329,7 @@ function [combined_color_prob_cell2,foreground_model_cell, background_model_cell
             [a b] = size(background_pix);
         end
         if a > b
-            background_model = fitgmdist(background_pix,3,'CovarianceType','diagonal','RegularizationValue',0.001,'Options',options);
+            background_model = fitgmdist(background_pix,3,'RegularizationValue',0.001,'Options',options);
         else
             background_model =  background_model_cell_prev{1,i};
         end
@@ -351,7 +348,7 @@ function [combined_color_prob_cell2,foreground_model_cell, background_model_cell
         back_prob_prev = pdf(background_model_cell_prev{1,i},values);
         comb_prob_prev = fore_prob_prev./(fore_prob_prev+back_prob_prev);
         
-        if sum(comb_prob >0.2) > sum(comb_prob_prev>0.5) % use prev model
+        if sum(comb_prob >0.5) > sum(comb_prob_prev>0.2) % use prev model
             %disp("prev color");
             combined_color_prob_cell2{1,i} = reshape(comb_prob_prev,[r c]); 
             foreground_model_cell{1,i} = foreground_model_cell_prev{1,i};
