@@ -11,23 +11,7 @@ end
 %init_mask = roipoly();
 init_mask = load('frames3_mask1'); init_mask = init_mask.init_mask;
 
-%% Get transformations between frames 
-%estimate whole object motion
-% transformation_cell = cell(1,num_images-1);
-% for i = 2:num_images
-%     gray_im1 = rgb2gray(images_cell{1,i-1});
-%     gray_im2 = rgb2gray(images_cell{1,i});
-%     points1 = detectSURFFeatures(gray_im1,'MetricThreshold',1500);
-%     points2 = detectSURFFeatures(gray_im2,'MetricThreshold',1500);
-%     [features1, validpts1]  = extractFeatures(gray_im1,points1);
-%     [features2, validpts2] = extractFeatures(gray_im2,points2);
-%     indexPairs = matchFeatures(features1,features2);
-%     matchedPoints1 = validpts1(indexPairs(:,1));
-%     matchedPoints2 = validpts2(indexPairs(:,2));
-%     transformation_cell{1,i-1} = estimateGeometricTransform(matchedPoints2,matchedPoints1,'affine');
-% end
-
-halfw = 30; s = 50; % s is how many windows total
+halfw = 30; s = 30; % s is how many windows total
 
 local_windows_center_cell_prev = get_window_pos_orig(init_mask,s);
 local_windows_image_cell_prev = get_local_windows(images_cell{1,1},local_windows_center_cell_prev, halfw);
@@ -41,13 +25,13 @@ total_confidence_cell_prev = get_total_confidence_cell(shape_model_confidence_ma
 
 foreground_prob_prev = get_final_mask(rgb2gray(images_cell{1,1}),local_windows_center_cell_prev,total_confidence_cell_prev,halfw,s);
 foreground_prev = foreground_prob_prev > 0.5;
-%foreground_prev=imfill(foreground_prev,'holes');
+foreground_prev=imfill(foreground_prev,'holes');
 imshow(foreground_prev);
 
 save_image_with_boxes(images_cell{1,1},local_windows_center_cell_prev,halfw,s,sprintf('../MyOutput/%s/Windows_On_Image_1.png',folder_name));
 imwrite(foreground_prev,sprintf('../MyOutput/%s/1.png',folder_name));
 
-local_color_to_save = get_final_mask(rgb2gray(images_cell{1,1}),local_windows_center_cell_prev,combined_color_prob_cell_prev,halfw,s);
+nlocal_color_to_save = get_final_mask(rgb2gray(images_cell{1,1}),local_windows_center_cell_prev,combined_color_prob_cell_prev,halfw,s);
 imwrite(local_color_to_save,sprintf('../MyOutput/%s/Local_Color_1.png',folder_name));
 local_shape_to_save = get_final_mask(rgb2gray(images_cell{1,1}),local_windows_center_cell_prev,local_windows_mask_cell_prev,halfw,s);
 imwrite(local_shape_to_save,sprintf('../MyOutput/%s/Local_Shape_1.png',folder_name));
@@ -68,7 +52,7 @@ figure
 
 prev_mask = foreground_prev;
 
-for frame =2:num_images
+for frame =2:5 %num_images
     fprintf("curr frame is %d\n",frame);
     %object motion, moving windows
     R = imref2d(size(prev_mask));
@@ -78,7 +62,7 @@ for frame =2:num_images
     gray_im1 = rgb2gray(images_cell{1,frame-1});
     gray_im2 = rgb2gray(images_cell{1,frame});
     % crop the images to only around the target area
-    center_arr = reshape(cell2mat(local_windows_center_cell_prev),[s 2]);
+    center_arr = reshape(cell2mat(local_windows_center_cell_prev(:)),[s 2]);
     minr = min(center_arr(:,1)); maxr = max(center_arr(:,1)); 
     minc = min(center_arr(:,2)); maxc = max(center_arr(:,2)); 
     gray_im1 =gray_im1(minr-halfw-5:maxr+halfw+5,minc-halfw-5:maxc+halfw+5);
@@ -91,13 +75,13 @@ for frame =2:num_images
     indexPairs = matchFeatures(features1,features2);
     matchedPoints1 = validpts1(indexPairs(:,1));
     matchedPoints2 = validpts2(indexPairs(:,2));
-    showMatchedFeatures(gray_im1,gray_im2, matchedPoints1, matchedPoints2,'montage');
+    %showMatchedFeatures(gray_im1,gray_im2, matchedPoints1, matchedPoints2,'montage');
    	my_transformation= estimateGeometricTransform(matchedPoints2,matchedPoints1,'affine');
     
     warped_image = imwarp(images_cell{1,frame-1},my_transformation,'OutputView',R);
     
     %local_windows_center_cell_prev = get_window_pos_orig(prev_mask,s);
-    local_windows_center_cell_curr = get_new_windows_centers(local_windows_mask_cell_prev,local_windows_center_cell_prev,warped_image,images_cell{1,frame},transformation_cell{1,frame-1},halfw,s,frame,folder_name);
+    local_windows_center_cell_curr = get_new_windows_centers(local_windows_mask_cell_prev,local_windows_center_cell_prev,warped_image,images_cell{1,frame},my_transformation,halfw,s,frame,folder_name);
     
     save_image_with_boxes(images_cell{1,frame},local_windows_center_cell_curr,halfw,s,sprintf('../MyOutput/%s/Windows_On_Image_%d.png',folder_name,frame));
     
@@ -122,7 +106,7 @@ for frame =2:num_images
     foreground_prob_curr = get_final_mask(rgb2gray(images_cell{1,frame}),local_windows_center_cell_curr,total_confidence_cell_curr,halfw,s);
     %foreground_curr = get_snapped(foreground_prob_curr,foreground_prob_curr);
     foreground_curr = foreground_prob_curr >0.2;
-    %foreground_curr=imfill(foreground_curr,'holes');
+    foreground_curr=imfill(foreground_curr,'holes');
     
     %setting to prev
     prev_mask = foreground_curr;
@@ -416,7 +400,11 @@ function save_image_with_boxes(I,local_windows_center_cell_curr,halfw,s,filename
     [h w] = size(I);
     imshow(I);
     hold on
-    for i = 1:s
+    center = local_windows_center_cell_curr{1,1};
+    cr = center(1); cc = center(2);
+    rectangle('Position',[cc-halfw,cr-halfw,halfw*2+1,halfw*2+1],'EdgeColor','y');
+    plot(cc, cr, 'y*', 'LineWidth', 2, 'MarkerSize', 5);
+    for i = 2:s
         center = local_windows_center_cell_curr{1,i};
         cr = center(1); cc = center(2);
         rectangle('Position',[cc-halfw,cr-halfw,halfw*2+1,halfw*2+1],'EdgeColor','r');
