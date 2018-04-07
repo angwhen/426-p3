@@ -1,4 +1,4 @@
-folder_name = 'Frames3';
+folder_name = 'Input';
 num_images = size(dir(['../' folder_name '/*.jpg']),1); 
 images_cell = cell(1,num_images);
 for i=1:num_images
@@ -7,11 +7,11 @@ for i=1:num_images
     images_cell{1,i} = I;
 end
 
-%imshow(images_cell{1,1});
-%init_mask = roipoly();
-init_mask = load('frames3_mask1'); init_mask = init_mask.init_mask;
+imshow(images_cell{1,1});
+init_mask = roipoly();
+%init_mask = load('frames3_mask1'); init_mask = init_mask.init_mask;
 
-halfw = 30; s = 30; % s is how many windows total
+halfw = 30; s = 60; % s is how many windows total
 
 local_windows_center_cell_prev = get_window_pos_orig(init_mask,s);
 local_windows_image_cell_prev = get_local_windows(images_cell{1,1},local_windows_center_cell_prev, halfw);
@@ -28,31 +28,21 @@ foreground_prev = foreground_prob_prev > 0.5;
 foreground_prev=imfill(foreground_prev,'holes');
 imshow(foreground_prev);
 
-save_image_with_boxes(images_cell{1,1},local_windows_center_cell_prev,halfw,s,sprintf('../MyOutput/%s/Windows_On_Image_1.png',folder_name));
-imwrite(foreground_prev,sprintf('../MyOutput/%s/1.png',folder_name));
-
-nlocal_color_to_save = get_final_mask(rgb2gray(images_cell{1,1}),local_windows_center_cell_prev,combined_color_prob_cell_prev,halfw,s);
-imwrite(local_color_to_save,sprintf('../MyOutput/%s/Local_Color_1.png',folder_name));
-local_shape_to_save = get_final_mask(rgb2gray(images_cell{1,1}),local_windows_center_cell_prev,local_windows_mask_cell_prev,halfw,s);
-imwrite(local_shape_to_save,sprintf('../MyOutput/%s/Local_Shape_1.png',folder_name));
-local_shape_conf_to_save = get_final_mask(rgb2gray(images_cell{1,1}),local_windows_center_cell_prev,shape_model_confidence_mask_cell_prev,halfw,s);
-imwrite(local_shape_conf_to_save,sprintf('../MyOutput/%s/Local_Shape_Conf_1.png',folder_name));
-
 B = bwboundaries(foreground_prev);
 imshow(images_cell{1,1});
 hold on
 for k = 1:length(B)
     boundary = B{k};
-    plot(boundary(:,2), boundary(:,1), 'y', 'LineWidth', 2)
+    plot(boundary(:,2), boundary(:,1), 'r', 'LineWidth', 2)
 end
 hold off
-saveas(gcf,sprintf('../MyOutput/%s/Highlighted_%d.png',folder_name,1));
+saveas(gcf,sprintf('../Output/%d.jpg',1));
 close all
 figure
 
 prev_mask = foreground_prev;
 
-for frame =2:5 %num_images
+for frame =2:num_images
     fprintf("curr frame is %d\n",frame);
     %object motion, moving windows
     R = imref2d(size(prev_mask));
@@ -80,11 +70,11 @@ for frame =2:5 %num_images
     
     warped_image = imwarp(images_cell{1,frame-1},my_transformation,'OutputView',R);
     
-    %local_windows_center_cell_prev = get_window_pos_orig(prev_mask,s);
+    % you may comment this out, but it helps for videos like the turtle,
+    % while it hurts for other videos
+    local_windows_center_cell_prev = get_window_pos_orig(prev_mask,s);
     local_windows_center_cell_curr = get_new_windows_centers(local_windows_mask_cell_prev,local_windows_center_cell_prev,warped_image,images_cell{1,frame},my_transformation,halfw,s,frame,folder_name);
-    
-    save_image_with_boxes(images_cell{1,frame},local_windows_center_cell_curr,halfw,s,sprintf('../MyOutput/%s/Windows_On_Image_%d.png',folder_name,frame));
-    
+   
     local_windows_mask_cell_curr = get_local_windows(prev_mask,local_windows_center_cell_curr, halfw); %use warped mask or NOT???? IDKK
     
     imshow(get_final_mask(rgb2gray(images_cell{1,frame}),local_windows_center_cell_curr,local_windows_mask_cell_curr,halfw,s));
@@ -116,26 +106,17 @@ for frame =2:5 %num_images
     local_windows_image_cell_prev = local_windows_image_cell_curr;
     combined_color_prob_cell_prev = combined_color_prob_cell_curr;
     total_confidence_cell_prev = total_confidence_cell_curr;
-    
-    %writing to files
-    imwrite(foreground_curr,sprintf('../MyOutput/%s/%d.png',folder_name,frame));
-    
-    local_color_to_save = get_final_mask(rgb2gray(images_cell{1,frame}),local_windows_center_cell_curr,combined_color_prob_cell_curr,halfw,s);
-    imwrite(local_color_to_save,sprintf('../MyOutput/%s/Local_Color_%d.png',folder_name,frame));
-    local_shape_to_save = get_final_mask(rgb2gray(images_cell{1,frame}),local_windows_center_cell_prev,local_windows_mask_cell_prev,halfw,s);
-    imwrite(local_shape_to_save,sprintf('../MyOutput/%s/Local_Shape_%d.png',folder_name,frame));
-    local_shape_conf_to_save = get_final_mask(rgb2gray(images_cell{1,frame}),local_windows_center_cell_curr,shape_model_confidence_mask_cell_prev,halfw,s);
-    imwrite(local_shape_conf_to_save,sprintf('../MyOutput/%s/Local_Shape_Conf_%d.png',folder_name,frame));
+   
     
     B = bwboundaries(foreground_curr);
     imshow(images_cell{1,frame});
     hold on
     for k = 1:length(B)
         boundary = B{k};
-        plot(boundary(:,2), boundary(:,1), 'y', 'LineWidth', 2)
+        plot(boundary(:,2), boundary(:,1), 'r', 'LineWidth', 2)
     end
     hold off
-    saveas(gcf,sprintf('../MyOutput/%s/Highlighted_%d.png',folder_name,frame));
+    saveas(gcf,sprintf('../Output/%d.jpg',frame));
     %imwrite(uint8(double(images_cell{1,frame}).*foreground_curr),sprintf('../MyOutput/%s/Image_Cutout_%d.png',folder_name,frame));
     
 end
@@ -390,29 +371,29 @@ function foreground2 = get_final_mask(I,local_windows_center_cell,total_confiden
     foreground2(isnan(foreground2))=0;
 end
 
-function BW_foreground = get_snapped(I,foreground)
-    L = superpixels(I,500);
-    f = find(foreground>0.8); b = find(foreground==0);
-    BW_foreground = lazysnapping(I,L,f,b);
-end
-
-function save_image_with_boxes(I,local_windows_center_cell_curr,halfw,s,filename)
-    [h w] = size(I);
-    imshow(I);
-    hold on
-    center = local_windows_center_cell_curr{1,1};
-    cr = center(1); cc = center(2);
-    rectangle('Position',[cc-halfw,cr-halfw,halfw*2+1,halfw*2+1],'EdgeColor','y');
-    plot(cc, cr, 'y*', 'LineWidth', 2, 'MarkerSize', 5);
-    for i = 2:s
-        center = local_windows_center_cell_curr{1,i};
-        cr = center(1); cc = center(2);
-        rectangle('Position',[cc-halfw,cr-halfw,halfw*2+1,halfw*2+1],'EdgeColor','r');
-        plot(cc, cr, 'r*', 'LineWidth', 2, 'MarkerSize', 5);
-    end
-    hold off 
-    saveas(gcf,filename);
-end
+% function BW_foreground = get_snapped(I,foreground)
+%     L = superpixels(I,500);
+%     f = find(foreground>0.8); b = find(foreground==0);
+%     BW_foreground = lazysnapping(I,L,f,b);
+% end
+% 
+% function save_image_with_boxes(I,local_windows_center_cell_curr,halfw,s,filename)
+%     [h w] = size(I);
+%     imshow(I);
+%     hold on
+%     center = local_windows_center_cell_curr{1,1};
+%     cr = center(1); cc = center(2);
+%     rectangle('Position',[cc-halfw,cr-halfw,halfw*2+1,halfw*2+1],'EdgeColor','y');
+%     plot(cc, cr, 'y*', 'LineWidth', 2, 'MarkerSize', 5);
+%     for i = 2:s
+%         center = local_windows_center_cell_curr{1,i};
+%         cr = center(1); cc = center(2);
+%         rectangle('Position',[cc-halfw,cr-halfw,halfw*2+1,halfw*2+1],'EdgeColor','r');
+%         plot(cc, cr, 'r*', 'LineWidth', 2, 'MarkerSize', 5);
+%     end
+%     hold off 
+%     saveas(gcf,filename);
+% end
 
 
 % function filter_bank = get_filter_bank()
