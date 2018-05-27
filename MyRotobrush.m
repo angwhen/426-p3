@@ -2,16 +2,17 @@ folder_name = 'Input';
 num_images = size(dir(['../' folder_name '/*.jpg']),1); 
 images_cell = cell(1,num_images);
 for i=1:num_images
-    filename = sprintf('../%s/%d.jpg',folder_name,i); % CHANGE BACK TO i LATER
+    filename = sprintf('../%s/%d.jpg',folder_name,i);
     I  = imread(filename);
     images_cell{1,i} = I;
 end
 
+use_transformation = false; %optical flow only means false, normal way is true, false gen better
 imshow(images_cell{1,1});
 init_mask = roipoly();
-%init_mask = load('frames3_mask1'); init_mask = init_mask.init_mask;
+%init_mask = load('frames1_mask1'); init_mask = init_mask.init_mask;
 
-halfw = 30; s = 60; % s is how many windows total
+halfw = 30; s = 80; % s is how many windows total
 
 local_windows_center_cell_prev = get_window_pos_orig(init_mask,s);
 local_windows_image_cell_prev = get_local_windows(images_cell{1,1},local_windows_center_cell_prev, halfw);
@@ -44,36 +45,40 @@ prev_mask = foreground_prev;
 
 for frame =2:num_images
     fprintf("curr frame is %d\n",frame);
-    %object motion, moving windows
-    R = imref2d(size(prev_mask));
-    %new_mask = imwarp(prev_mask,transformation_cell{1,frame-1},'OutputView',R);
-    
-    %calculate transformation
-    gray_im1 = rgb2gray(images_cell{1,frame-1});
-    gray_im2 = rgb2gray(images_cell{1,frame});
-    % crop the images to only around the target area
-    center_arr = reshape(cell2mat(local_windows_center_cell_prev(:)),[s 2]);
-    minr = min(center_arr(:,1)); maxr = max(center_arr(:,1)); 
-    minc = min(center_arr(:,2)); maxc = max(center_arr(:,2)); 
-    gray_im1 =gray_im1(minr-halfw-5:maxr+halfw+5,minc-halfw-5:maxc+halfw+5);
-    gray_im2 =gray_im2(minr-halfw-5:maxr+halfw+5,minc-halfw-5:maxc+halfw+5);
-    %match stuff
-    points1 = detectSURFFeatures(gray_im1,'MetricThreshold',100);
-    points2 = detectSURFFeatures(gray_im2,'MetricThreshold',100);
-    [features1, validpts1]  = extractFeatures(gray_im1,points1);
-    [features2, validpts2] = extractFeatures(gray_im2,points2);
-    indexPairs = matchFeatures(features1,features2);
-    matchedPoints1 = validpts1(indexPairs(:,1));
-    matchedPoints2 = validpts2(indexPairs(:,2));
-    %showMatchedFeatures(gray_im1,gray_im2, matchedPoints1, matchedPoints2,'montage');
-   	my_transformation= estimateGeometricTransform(matchedPoints2,matchedPoints1,'affine');
-    
-    warped_image = imwarp(images_cell{1,frame-1},my_transformation,'OutputView',R);
-    
-    % you may comment this out, but it helps for videos like the turtle,
-    % while it hurts for other videos
-    local_windows_center_cell_prev = get_window_pos_orig(prev_mask,s);
-    local_windows_center_cell_curr = get_new_windows_centers(local_windows_mask_cell_prev,local_windows_center_cell_prev,warped_image,images_cell{1,frame},my_transformation,halfw,s,frame,folder_name);
+    if use_transformation
+        R = imref2d(size(prev_mask));
+        %calculate transformation
+        gray_im1 = rgb2gray(images_cell{1,frame-1});
+        gray_im2 = rgb2gray(images_cell{1,frame});
+        % crop the images to only around the target area
+        center_arr = reshape(cell2mat(local_windows_center_cell_prev(:)),[s 2]);
+        minr = uint32(min(center_arr(:,1))); maxr = uint32(max(center_arr(:,1))); 
+        minc = uint32(min(center_arr(:,2))); maxc = uint32(max(center_arr(:,2)));         gray_im1 =gray_im1(minr-halfw-5:maxr+halfw+5,minc-halfw-5:maxc+halfw+5);
+        gray_im2 =gray_im2(minr-halfw-5:maxr+halfw+5,minc-halfw-5:maxc+halfw+5);
+        %gray_im1 = rgb2gray(uint8(double(images_cell{1,frame-1}).*foreground_prev));
+
+        %match stuff
+        points1 = detectSURFFeatures(gray_im1,'MetricThreshold',100);
+        points2 = detectSURFFeatures(gray_im2,'MetricThreshold',100);
+        [features1, validpts1]  = extractFeatures(gray_im1,points1);
+        [features2, validpts2] = extractFeatures(gray_im2,points2);
+        indexPairs = matchFeatures(features1,features2);
+        matchedPoints1 = validpts1(indexPairs(:,1));
+        matchedPoints2 = validpts2(indexPairs(:,2));
+        showMatchedFeatures(gray_im1,gray_im2, matchedPoints1, matchedPoints2,'montage');
+        my_transformation= estimateGeometricTransform(matchedPoints2,matchedPoints1,'affine');
+
+        warped_image = imwarp(images_cell{1,frame-1},my_transformation,'OutputView',R);
+        
+        % this might help for the turtle and similarly slow moving videos
+        %local_windows_center_cell_prev = get_window_pos_orig(prev_mask,s);
+        %local_windows_mask_cell_prev = get_local_windows(prev_mask,local_windows_center_cell_prev, halfw);
+        save_image_with_boxes(images_cell{1,frame},local_windows_center_cell_prev,halfw,s,sprintf('../Output/Windows_%d.jpg',frame));
+    else
+        warped_image = images_cell{1,frame-1}; %fake warped for test
+        my_transformation = 0; %placeholder
+    end
+    local_windows_center_cell_curr = get_new_windows_centers(local_windows_mask_cell_prev,local_windows_center_cell_prev,warped_image,images_cell{1,frame},my_transformation,halfw,s,frame,folder_name,use_transformation);
    
     local_windows_mask_cell_curr = get_local_windows(prev_mask,local_windows_center_cell_curr, halfw); %use warped mask or NOT???? IDKK
     
@@ -95,7 +100,7 @@ for frame =2:num_images
     %determine new mask
     foreground_prob_curr = get_final_mask(rgb2gray(images_cell{1,frame}),local_windows_center_cell_curr,total_confidence_cell_curr,halfw,s);
     %foreground_curr = get_snapped(foreground_prob_curr,foreground_prob_curr);
-    foreground_curr = foreground_prob_curr >0.2;
+    foreground_curr = foreground_prob_curr >0.3;
     foreground_curr=imfill(foreground_curr,'holes');
     
     %setting to prev
@@ -117,6 +122,7 @@ for frame =2:num_images
     end
     hold off
     saveas(gcf,sprintf('../Output/%d.jpg',frame));
+    %save_image_with_boxes(images_cell{1,frame},local_windows_center_cell_curr,halfw,s,sprintf('../MyOutput/%s/Windows_%d.jpg',folder_name,frame));
     %imwrite(uint8(double(images_cell{1,frame}).*foreground_curr),sprintf('../MyOutput/%s/Image_Cutout_%d.png',folder_name,frame));
     
 end
@@ -152,7 +158,7 @@ function local_windows_image_cell = get_local_windows(I,local_windows_center_cel
     [~, num_windows] = size(local_windows_center_cell);
     local_windows_image_cell = cell(1,num_windows);
     for i = 1:num_windows
-        center = local_windows_center_cell{1,i};
+        center = uint32(local_windows_center_cell{1,i});
         r = center(1); c = center(2);
         %fprintf("r is %d, c is %d\n",r,c);
         my_patch = I(r-halfwidth:r+halfwidth, c-halfwidth:c+halfwidth,:);
@@ -229,19 +235,21 @@ function shape_model_confidence_mask_cell = get_shape_model_confidence_mask_cell
     end
 end
 
-function local_windows_center_cell2 = get_new_windows_centers(local_windows_mask_cell_prev,local_windows_center_cell,curr_image,next_image,my_tform,halfw,s,frame,folder_name)
+function local_windows_center_cell2 = get_new_windows_centers(local_windows_mask_cell_prev,local_windows_center_cell,curr_image,next_image,my_tform,halfw,s,frame,folder_name,use_transformation)
     % DO CENTER MOVING WITH TRANSFORM
     [myh myw] = size(rgb2gray(curr_image));
-    local_windows_center_cell2 = cell(1,s);
-    rotation_cell = cell(1,s);
-    for i = 1:s
-        mycenter = local_windows_center_cell{1,i}; cr = double(mycenter(1)); cc = double(mycenter(2));
-        [newr,newc] = transformPointsForward(my_tform,cr,cc);
-     
-        local_windows_center_cell2{1,i} = uint32([newr newc]);
-    end
+    if use_transformation
+        local_windows_center_cell2 = cell(1,s);
+        for i = 1:s
+            mycenter = local_windows_center_cell{1,i}; cr = double(mycenter(1)); cc = double(mycenter(2));
+            [newr,newc] = transformPointsForward(my_tform,cr,cc);
 
-    opticFlow = opticalFlowFarneback;
+            local_windows_center_cell2{1,i} = double([newr newc]);
+        end
+    else
+         local_windows_center_cell2 = local_windows_center_cell;
+    end
+    opticFlow = opticalFlowFarneback('NeighborhoodSize',8);
     estimateFlow(opticFlow,rgb2gray(curr_image));
     flow = estimateFlow(opticFlow,rgb2gray(next_image));
     VxWindows = get_local_windows(flow.Vx,local_windows_center_cell2, halfw);
@@ -250,24 +258,25 @@ function local_windows_center_cell2 = get_new_windows_centers(local_windows_mask
 %     hold on
 %     plot(flow,'DecimationFactor',[15 15],'ScaleFactor',5);
 %     hold off;
-%     saveas(gcf,sprintf('../MyOutput/%s/OpticalFlow_%d.png',folder_name,frame));
+%     saveas(gcf,sprintf('../Output/OpticalFlow_%d.png',frame));
     
     for i = 1:s
         %get mean within foreground
-        currVx = VxWindows{1,i} .* local_windows_mask_cell_prev{1,i};
-        Vxmean = sum(currVx(:))/sum(currVx(:)~=0);
-        currVy = VyWindows{1,i} .* local_windows_mask_cell_prev{1,i};
-        Vymean = sum(currVy(:))/sum(currVy(:)~=0); 
+        curr_w_mask = local_windows_mask_cell_prev{1,i};
+        currVx = VxWindows{1,i} .*  curr_w_mask;
+        Vxmean = sum(currVx(:))/sum(curr_w_mask(:)==1);
+        currVy = VyWindows{1,i} .*  curr_w_mask;
+        Vymean = sum(currVy(:))/sum(curr_w_mask(:)==1); 
         
         if isnan(Vxmean) || isnan(Vymean)
             Vxmean = 0; Vymean = 0;
         end
 
-        new_center = uint32(double(local_windows_center_cell2{1,i}) + [Vymean Vxmean]);
+        new_center = double(local_windows_center_cell2{1,i}) + [Vymean Vxmean];
         if new_center(1)+halfw >= myh || new_center(1)-halfw <= 1 || new_center(2)+halfw >= myw || new_center(2)-halfw <= 1
-            new_center = local_windows_center_cell2{1,randi(i-1)}; 
+            new_center = double(local_windows_center_cell2{1,randi(i-1)}); 
         end
-        local_windows_center_cell2{1,i} = new_center;
+        local_windows_center_cell2{1,i} = double(new_center);
     end
    
 end
@@ -358,7 +367,7 @@ function foreground2 = get_final_mask(I,local_windows_center_cell,total_confiden
     foreground_numer = zeros([h w]);
     foreground_denom = zeros([h w]);
     for i = 1:s
-        center = local_windows_center_cell{1,i}; cr = center(1); cc = center(2);
+        center = uint32(local_windows_center_cell{1,i}); cr = center(1); cc = center(2);
         for a = 1:(halfw*2+1)
             for b = 1:(halfw*2+1)
                 d = 1.0/(sqrt(double((a-cr).^2+(b-cc).^2))+eps);
@@ -376,24 +385,24 @@ end
 %     f = find(foreground>0.8); b = find(foreground==0);
 %     BW_foreground = lazysnapping(I,L,f,b);
 % end
-% 
-% function save_image_with_boxes(I,local_windows_center_cell_curr,halfw,s,filename)
-%     [h w] = size(I);
-%     imshow(I);
-%     hold on
-%     center = local_windows_center_cell_curr{1,1};
-%     cr = center(1); cc = center(2);
-%     rectangle('Position',[cc-halfw,cr-halfw,halfw*2+1,halfw*2+1],'EdgeColor','y');
-%     plot(cc, cr, 'y*', 'LineWidth', 2, 'MarkerSize', 5);
-%     for i = 2:s
-%         center = local_windows_center_cell_curr{1,i};
-%         cr = center(1); cc = center(2);
-%         rectangle('Position',[cc-halfw,cr-halfw,halfw*2+1,halfw*2+1],'EdgeColor','r');
-%         plot(cc, cr, 'r*', 'LineWidth', 2, 'MarkerSize', 5);
-%     end
-%     hold off 
-%     saveas(gcf,filename);
-% end
+
+function save_image_with_boxes(I,local_windows_center_cell_curr,halfw,s,filename)
+    [h w] = size(I);
+    imshow(I);
+    hold on
+    center = uint32(local_windows_center_cell_curr{1,1});
+    cr = center(1); cc = center(2);
+    rectangle('Position',[cc-halfw,cr-halfw,halfw*2+1,halfw*2+1],'EdgeColor','y');
+    plot(cc, cr, 'y*', 'LineWidth', 2, 'MarkerSize', 5);
+    for i = 2:s
+        center = uint32(local_windows_center_cell_curr{1,i});
+        cr = center(1); cc = center(2);
+        rectangle('Position',[cc-halfw,cr-halfw,halfw*2+1,halfw*2+1],'EdgeColor','r');
+        plot(cc, cr, 'r*', 'LineWidth', 2, 'MarkerSize', 5);
+    end
+    hold off 
+    saveas(gcf,filename);
+end
 
 
 % function filter_bank = get_filter_bank()
